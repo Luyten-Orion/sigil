@@ -105,7 +105,7 @@ proc run*(instructions: seq[Instruction], input: string, debug = false): VmResul
         cursorPos: inputCursor, 
         capStackLen: captureStartStack.len,
         finalCapLen: finalCaptures.len,
-        callStackLen: callStack.len # <--- SAVE THIS
+        callStackLen: callStack.len
       )
       inc instructionIdx
 
