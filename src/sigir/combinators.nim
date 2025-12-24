@@ -1,4 +1,5 @@
-import sigil/sigir/[types, utils]
+import sigil
+import sigil/sigir/[stypes, utils]
 
 # Basic constructor
 template parser*[C: Ctx](name: string): ParserBuilder[C] =

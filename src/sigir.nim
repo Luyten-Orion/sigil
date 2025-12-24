@@ -1,2 +1,3 @@
-import sigil/sigir/[types, combinators, linker, grammar]
-export types, combinators, linker, grammar
+import sigil
+import sigil/sigir/[stypes, combinators, linker, grammar]
+export sigil, stypes, combinators, linker, grammar

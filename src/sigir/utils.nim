@@ -1,4 +1,4 @@
-import sigil/sigir/types
+import sigil/sigir/stypes
 
 func shiftAddresses*(insts: var seq[Instruction], offset: int) =
   for i in 0 ..< insts.len:

@@ -1,10 +1,7 @@
 import std/[tables]
+import sigil
 
 type
-  Ctx* = not (ref | void)
-  # Accepts a mutable context and the currently captured strings
-  ActionProc*[C: Ctx] = proc(ctx: var C, captures: seq[string]): bool {.nimcall.}
-
   OpCode* = enum
     # Matching ops
     opChar, opSet, opAny, opStr
@@ -29,6 +26,7 @@ type
     # Indexes into `Glyph.strPool`
     of opStr, opRuleCall, opExceptStr, opPushErrLabel: valStrIdx*: int
     of opJump, opChoice, opCommit, opCall: valTarget*: int
+    # TODO: Make an action pool (removes the need for generic `Instruction`)
     of opAction: actionFunc*: ActionProc[C]
     else: discard
 

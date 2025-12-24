@@ -1,4 +1,5 @@
-import sigil/sigir/[types, combinators, linker]
+import sigil
+import sigil/sigir/[stypes, combinators, linker]
 
 type
   Grammar*[C: Ctx] = ref object

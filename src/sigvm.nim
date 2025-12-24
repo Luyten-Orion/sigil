@@ -1,7 +1,8 @@
 import std/[
   strutils, sets
 ]
-import sigil/sigir/types
+import sigil
+import sigil/sigir/stypes
 
 
 # Friendly-ish default error reporting
@@ -54,7 +55,7 @@ type
     foundTerminal*: string
 
 
-proc run*[C](
+proc run*[C: Ctx](
   glyph: Glyph[C],
   input: string,
   ctx: var C,

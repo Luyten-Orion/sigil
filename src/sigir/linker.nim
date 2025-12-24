@@ -1,5 +1,6 @@
+import sigil
 import std/[tables]
-import sigil/sigir/[types, utils]
+import sigil/sigir/[stypes, utils]
 
 
 # TODO: Move into `utils`
