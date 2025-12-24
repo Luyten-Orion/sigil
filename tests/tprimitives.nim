@@ -1,6 +1,6 @@
 import std/[strutils, sets]
 import sigil/[sigir, sigvm]
-import common
+import ./common
 
 block Primitives:
   echo "Running Primitives Test..."
@@ -34,10 +34,12 @@ block Negation:
 
   const exceptParser = static:
     let g = newGrammar[TestContext]()
+    # Match any char EXCEPT 'X'
     g.compile(g.matchExcept('X'))
 
   doAssert run(exceptParser, "Y", ctx).success, "Should match 'Y'"
   
   let resFail = run(exceptParser, "X", ctx)
   doAssert not resFail.success, "Should fail on 'X'"
+  # Pretty printed char `X`
   doAssert resFail.foundTerminal == "`X`", "Expected foundTerminal to be `X`, got: " & resFail.foundTerminal

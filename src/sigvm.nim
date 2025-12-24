@@ -19,7 +19,7 @@ func prettySet(s: set[char]): string =
         inRange = true
     else:
       if inRange:
-        let stop = pred(c)
+        let stop = char(ord(c) - 1)
         if start == stop: ranges.add(prettyChar(start))
         elif ord(stop) == ord(start) + 1:
            ranges.add(prettyChar(start)); ranges.add(prettyChar(stop))

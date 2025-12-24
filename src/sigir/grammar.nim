@@ -54,7 +54,7 @@ proc forward*[C: Ctx](g: Grammar[C], name: string): ParserBuilder[C] =
 proc implement*[C: Ctx](g: Grammar[C], name: string, builder: ParserBuilder[C]) =
   # Implements the logic for a forward-declared rule. No real difference from
   # `define` besides for the fact it doesn't return a call
-  discard g.define[C](name, builder)
+  discard g.define[:C](name, builder)
 
 # Compilation
 proc compile*[C: Ctx](g: Grammar[C], entryRule: ParserBuilder[C]): seq[Instruction[C]] =

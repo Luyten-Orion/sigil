@@ -147,6 +147,11 @@ func expect*[C: Ctx](p: ParserBuilder[C], msg: string): ParserBuilder[C] =
     "expect(id: `" & p.id & "`,msg: `" & msg & "`)",
     "expect(id: `" & p.name & "`,msg: `" & msg & "`)"
   )
+  var pInsts = p.instructions
   result.instructions.add Instruction[C](op: opPushErrLabel, valStr: msg)  
-  result.instructions.add(p.instructions)
+
+  # Shift by 1 because of `opPushErrLabel`
+  shiftAddresses(pInsts, 1)
+  result.instructions.add(pInsts)
+
   result.instructions.add Instruction[C](op: opPopErrLabel)
