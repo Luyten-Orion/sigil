@@ -27,6 +27,7 @@ type
     of opSet, opExceptSet: valSet*: set[char]
     of opStr, opRuleCall, opExceptStr, opPushErrLabel: valStr*: string
     of opJump, opChoice, opCommit, opCall: valTarget*: int
+    of opAction: actionFunc*: ActionProc[C]
     else: discard
 
   ParserBuilder*[C: Ctx] = object

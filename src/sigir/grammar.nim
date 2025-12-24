@@ -7,6 +7,25 @@ type
 func newGrammar*[C: Ctx](): Grammar[C] =
   Grammar[C](lib: initLibrary[C]())
 
+# Helpers (to infer the context using a grammar type)
+func match*[C: Ctx](g: Grammar[C], c: char): ParserBuilder[C] =
+  combinators.match[C](c)
+
+func match*[C: Ctx](g: Grammar[C], s: set[char]): ParserBuilder[C] =
+  combinators.match[C](s)
+
+func match*[C: Ctx](g: Grammar[C], s: string): ParserBuilder[C] =
+  combinators.match[C](s)
+
+func matchExcept*[C: Ctx](g: Grammar[C], c: char): ParserBuilder[C] =
+  combinators.matchExcept[C](c)
+
+func matchExcept*[C: Ctx](g: Grammar[C], s: set[char]): ParserBuilder[C] =
+  combinators.matchExcept[C](s)
+
+func matchExcept*[C: Ctx](g: Grammar[C], s: string): ParserBuilder[C] =
+  combinators.matchExcept[C](s)
+
 # Defining a rule (without any sort of forward declaration)
 proc define*[C: Ctx](
   g: Grammar[C],
