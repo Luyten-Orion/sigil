@@ -1,6 +1,10 @@
 import std/[tables]
 
 type
+  Ctx* = not (ref | void)
+  # Accepts a mutable context and the currently captured strings
+  ActionProc*[C: Ctx] = proc(ctx: var C, captures: seq[string]): bool {.nimcall.}
+
   OpCode* = enum
     # Matching ops
     opChar, opSet, opAny, opStr
@@ -12,34 +16,41 @@ type
     opRuleCall, opCall, opReturn
     # Captures
     opCapPushPos, opCapPopPos
+    # Action (callbacks)
+    opAction
+    # Error reporting
+    opPushErrLabel, opPopErrLabel
 
-  Instruction* = object
+  Instruction*[C: Ctx] = object
     case op*: OpCode
     of opChar, opExceptChar: valChar*: char
     of opSet, opExceptSet: valSet*: set[char]
-    of opStr, opRuleCall, opExceptStr: valStr*: string
+    of opStr, opRuleCall, opExceptStr, opPushErrLabel: valStr*: string
     of opJump, opChoice, opCommit, opCall: valTarget*: int
     else: discard
 
-  ParserBuilder* = object
+  ParserBuilder*[C: Ctx] = object
     id*: string
     name*: string
-    instructions*: seq[Instruction]
+    instructions*: seq[Instruction[C]]
 
-  ParserLibrary* = object
-    rules*: Table[string, ParserBuilder]
+  ParserLibrary*[C: Ctx] = object
+    rules*: Table[string, ParserBuilder[C]]
 
 # Basic constructors
-func initParser*(id, name: string): ParserBuilder =
-  ParserBuilder(id: id, name: name)
+func initParser*[C: Ctx](id, name: string): ParserBuilder[C] =
+  ParserBuilder[C](id: id, name: name)
 
-func initLibrary*(): ParserLibrary =
-  result.rules = initTable[string, ParserBuilder]()
+func initLibrary*[C: Ctx](): ParserLibrary[C] =
+  result.rules = initTable[string, ParserBuilder[C]]()
 
-func add*(lib: var ParserLibrary, p: ParserBuilder) =
+# TODO: Maybe add an overload for converting instructions from one
+# type, to another? We just need to verify that there are no
+# action instructions.
+func add*[C: Ctx](lib: var ParserLibrary[C], p: ParserBuilder[C]) =
   if p.id in lib.rules:
     raise newException(ValueError, "Library Error: Rule '" & p.id & "' already exists.")
   lib.rules[p.id] = p
 
-func add*(lib: var ParserLibrary, other: ParserLibrary) =
+func add*[C: Ctx](lib: var ParserLibrary[C], other: ParserLibrary[C]) =
   for id, p in other.rules: lib.add(p)

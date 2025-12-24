@@ -1,7 +1,7 @@
 import std/[tables]
 import sigil/sigir/[types, utils]
 
-func link*(entry: ParserBuilder, lib: ParserLibrary): seq[Instruction] =
+func link*[C: Ctx](entry: ParserBuilder[C], lib: ParserLibrary[C]): seq[Instruction[C]] =
   var ruleLocations: Table[string, int]
 
   # Entrypoint
@@ -28,6 +28,6 @@ func link*(entry: ParserBuilder, lib: ParserLibrary): seq[Instruction] =
         result.add(body)
       
       # Patch: opRuleCall("id") -> opCall(targetIp)
-      result[pendingIp] = Instruction(op: opCall, valTarget: targetIp)
+      result[pendingIp] = Instruction[C](op: opCall, valTarget: targetIp)
       
     pendingIp.inc
