@@ -57,11 +57,11 @@ proc implement*[C: Ctx](g: Grammar[C], name: string, builder: ParserBuilder[C]) 
   discard g.define[:C](name, builder)
 
 # Compilation
-proc compile*[C: Ctx](g: Grammar[C], entryRule: ParserBuilder[C]): seq[Instruction[C]] =
+proc compile*[C: Ctx](g: Grammar[C], entryRule: ParserBuilder[C]): Glyph[C] =
   var entry = entryRule
   entry.instructions.add Instruction[C](op: opReturn)
   link[C](entry, g.lib)
 
-proc compile*[C: Ctx](g: Grammar[C], entryRule: string): seq[Instruction[C]] =
+proc compile*[C: Ctx](g: Grammar[C], entryRule: string): Glyph[C] =
   # Convenience overload to compile starting from a named rule
   compile[C](g, call[C](entryRule))

@@ -24,8 +24,10 @@ type
   Instruction*[C: Ctx] = object
     case op*: OpCode
     of opChar, opExceptChar: valChar*: char
-    of opSet, opExceptSet: valSet*: set[char]
-    of opStr, opRuleCall, opExceptStr, opPushErrLabel: valStr*: string
+    # Indexes into `Glyph.setPool`
+    of opSet, opExceptSet: valSetIdx*: int
+    # Indexes into `Glyph.strPool`
+    of opStr, opRuleCall, opExceptStr, opPushErrLabel: valStrIdx*: int
     of opJump, opChoice, opCommit, opCall: valTarget*: int
     of opAction: actionFunc*: ActionProc[C]
     else: discard
@@ -34,9 +36,16 @@ type
     id*: string
     name*: string
     instructions*: seq[Instruction[C]]
+    localStrPool*: seq[string]
+    localSetPool*: seq[set[char]]
 
   ParserLibrary*[C: Ctx] = object
     rules*: Table[string, ParserBuilder[C]]
+
+  Glyph*[C: Ctx] = object
+    insts*: seq[Instruction[C]]
+    strPool*: seq[string]
+    setPool*: seq[set[char]]
 
 # Basic constructors
 func initParser*[C: Ctx](id, name: string): ParserBuilder[C] =

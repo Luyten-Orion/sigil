@@ -6,6 +6,32 @@ template parser*[C: Ctx](name: string): ParserBuilder[C] =
   const prefix = sanitize(info.filename)
   initParser[C](prefix & "_" & name, name)
 
+# Helper for pools
+func getOrAdd[T: string | set[char]](pool: var seq[T], val: T): int =
+  result = pool.find(val)
+  if result == -1:
+    pool.add(val)
+    result = pool.high
+
+
+func mergePools[C](dest: var ParserBuilder[C], src: ParserBuilder[C]): seq[Instruction[C]] =
+  result = src.instructions
+  
+  let
+    strOffset = dest.localStrPool.len
+    setOffset = dest.localSetPool.len
+  
+  dest.localStrPool.add(src.localStrPool)
+  dest.localSetPool.add(src.localSetPool)
+  
+  # Remap indices in B's instructions
+  for inst in result.mitems:
+    if inst.op in {opStr, opExceptStr, opPushErrLabel, opRuleCall}:
+      inst.valStrIdx += strOffset
+    elif inst.op in {opSet, opExceptSet}:
+      inst.valSetIdx += setOffset
+
+
 # Primitives
 func match*[C: Ctx](c: char): ParserBuilder[C] =
   result = initParser[C]("match_char(" & $c & ")", "match_char(" & $c & ")")
@@ -13,11 +39,13 @@ func match*[C: Ctx](c: char): ParserBuilder[C] =
 
 func match*[C: Ctx](s: set[char]): ParserBuilder[C] =
   result = initParser[C]("match_set(" & $s & ")", "match_set(" & $s & ")")
-  result.instructions.add Instruction[C](op: opSet, valSet: s)
+  let idx = result.localSetPool.getOrAdd(s)
+  result.instructions.add Instruction[C](op: opSet, valSetIdx: idx)
 
 func match*[C: Ctx](s: string): ParserBuilder[C] =
   result = initParser[C]("match_str(" & s & ")", "match_str(" & s & ")")
-  result.instructions.add Instruction[C](op: opStr, valStr: s)
+  let idx = result.localStrPool.getOrAdd(s)
+  result.instructions.add Instruction[C](op: opStr, valStrIdx: idx)
 
 # Match except
 func matchExcept*[C: Ctx](c: char): ParserBuilder[C] =
@@ -26,19 +54,21 @@ func matchExcept*[C: Ctx](c: char): ParserBuilder[C] =
 
 func matchExcept*[C: Ctx](s: set[char]): ParserBuilder[C] =
   result = initParser[C]("except_set(" & $s & ")", "except_set(" & $s & ")")
-  result.instructions.add Instruction[C](op: opExceptSet, valSet: s)
+  let idx = result.localSetPool.getOrAdd(s)
+  result.instructions.add Instruction[C](op: opExceptSet, valSetIdx: idx)
 
 func matchExcept*[C: Ctx](s: string): ParserBuilder[C] =
   result = initParser[C]("except_str(" & s & ")", "except_str(" & s & ")")
-  result.instructions.add Instruction[C](op: opExceptStr, valStr: s)
+  let idx = result.localStrPool.getOrAdd(s)
+  result.instructions.add Instruction[C](op: opExceptStr, valStrIdx: idx)
 
 
 # Combinators
 func `and`*[C: Ctx](a, b: ParserBuilder[C]): ParserBuilder[C] =
   result = initParser[C]("and(" & a.id & "," & b.id & ")", "and(" & a.name & "," & b.name & ")")
-  result.instructions.add(a.instructions)
-  
-  var bInsts = b.instructions
+  result.instructions.add(result.mergePools(a))
+  # TODO: Just make a `merge` helper?
+  var bInsts = result.mergePools(b)
   shiftAddresses(bInsts, a.instructions.len)
   result.instructions.add(bInsts)
 
@@ -46,21 +76,22 @@ func `and`*[C: Ctx](a, b: ParserBuilder[C]): ParserBuilder[C] =
 func `or`*[C: Ctx](a, b: ParserBuilder[C]): ParserBuilder[C] =
   result = initParser[C]("or(" & a.id & "," & b.id & ")", "or(" & a.name & "," & b.name & ")")
   
-  let lenA = a.instructions.len
-  let lenB = b.instructions.len
-  let startOfB = 1 + lenA + 1
-  let endOfAll = startOfB + lenB
+  let
+    lenA = a.instructions.len
+    lenB = b.instructions.len
+    startOfB = 1 + lenA + 1
+    endOfAll = startOfB + lenB
+
+  var
+    aInsts = result.mergePools(a)
+    bInsts = result.mergePools(b)
+
+  shiftAddresses(aInsts, 1)
+  shiftAddresses(bInsts, startOfB)
 
   result.instructions.add Instruction[C](op: opChoice, valTarget: startOfB)
-  
-  var aInsts = a.instructions
-  shiftAddresses(aInsts, 1)
   result.instructions.add(aInsts)
-  
   result.instructions.add Instruction[C](op: opCommit, valTarget: endOfAll)
-  
-  var bInsts = b.instructions
-  shiftAddresses(bInsts, startOfB)
   result.instructions.add(bInsts)
 
 
@@ -71,7 +102,7 @@ func many0*[C: Ctx](p: ParserBuilder[C]): ParserBuilder[C] =
 
   result.instructions.add Instruction[C](op: opChoice, valTarget: endLabel)
   
-  var pInsts = p.instructions
+  var pInsts = result.mergePools(p)
   shiftAddresses(pInsts, 1)
   result.instructions.add(pInsts)
   
@@ -91,7 +122,7 @@ func optional*[C: Ctx](p: ParserBuilder[C]): ParserBuilder[C] =
   
   result.instructions.add Instruction[C](op: opChoice, valTarget: endLabel)
   
-  var pInsts = p.instructions
+  var pInsts = result.mergePools(p)
   shiftAddresses(pInsts, 1)
   result.instructions.add(pInsts)
   
@@ -103,7 +134,7 @@ func capture*[C: Ctx](p: ParserBuilder[C]): ParserBuilder[C] =
   
   result.instructions.add Instruction[C](op: opCapPushPos)
   
-  var pInsts = p.instructions
+  var pInsts = result.mergePools(p)
   shiftAddresses(pInsts, 1)
   result.instructions.add(pInsts)
   
@@ -112,7 +143,7 @@ func capture*[C: Ctx](p: ParserBuilder[C]): ParserBuilder[C] =
 
 func action*[C: Ctx](p: ParserBuilder[C], act: ActionProc[C]): ParserBuilder[C] =
   result = initParser[C]("act(" & p.id & ")", "act(" & p.name & ")")
-  result.instructions.add(p.instructions)
+  result.instructions.add(result.mergePools(p))
   result.instructions.add Instruction[C](op: opAction, actionFunc: act)
 
 
@@ -133,7 +164,8 @@ func sepBy*[C: Ctx](p, sep: ParserBuilder[C]): ParserBuilder[C] =
 # Call types
 func call*[C: Ctx](name: string): ParserBuilder[C] =
   result = initParser[C]("call(" & name & ")", "call(" & name & ")")
-  result.instructions.add Instruction[C](op: opRuleCall, valStr: name)
+  let idx = result.localStrPool.getOrAdd(name)
+  result.instructions.add Instruction[C](op: opRuleCall, valStrIdx: idx)
 
 
 func smartCall*[C: Ctx](p: ParserBuilder[C]): ParserBuilder[C] =
@@ -147,8 +179,9 @@ func expect*[C: Ctx](p: ParserBuilder[C], msg: string): ParserBuilder[C] =
     "expect(id: `" & p.id & "`,msg: `" & msg & "`)",
     "expect(id: `" & p.name & "`,msg: `" & msg & "`)"
   )
-  var pInsts = p.instructions
-  result.instructions.add Instruction[C](op: opPushErrLabel, valStr: msg)  
+  var pInsts = result.mergePools(p)
+  let idx = result.localStrPool.getOrAdd(msg)
+  result.instructions.add Instruction[C](op: opPushErrLabel, valStrIdx: idx)  
 
   # Shift by 1 because of `opPushErrLabel`
   shiftAddresses(pInsts, 1)

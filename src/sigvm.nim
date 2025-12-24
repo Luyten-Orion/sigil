@@ -55,7 +55,7 @@ type
 
 
 proc run*[C](
-  instructions: seq[Instruction[C]],
+  glyph: Glyph[C],
   input: string,
   ctx: var C,
   debug = false
@@ -115,13 +115,13 @@ proc run*[C](
         foundTerminal: found
       )
 
-  while instructionIdx < instructions.len:
-    let inst = instructions[instructionIdx]
+  while instructionIdx < glyph.insts.len:
+    let inst = glyph.insts[instructionIdx]
     
     case inst.op
     # Err ops
     of opPushErrLabel:
-      labelStack.add(inst.valStr)
+      labelStack.add(glyph.strPool[inst.valStrIdx])
       inc instructionIdx
       
     of opPopErrLabel:
@@ -138,14 +138,14 @@ proc run*[C](
         triggerFail()
 
     of opSet:
-      if inputCursor < input.len and input[inputCursor] in inst.valSet:
+      if inputCursor < input.len and input[inputCursor] in glyph.setPool[inst.valSetIdx]:
         inc inputCursor; inc instructionIdx
       else:
-        recordFailure(prettySet(inst.valSet))
+        recordFailure(prettySet(glyph.setPool[inst.valSetIdx]))
         triggerFail()
 
     of opStr:
-      let s = inst.valStr
+      let s = glyph.strPool[inst.valStrIdx]
       if inputCursor + s.len <= input.len and input[inputCursor ..< inputCursor + s.len] == s:
         inputCursor += s.len; inc instructionIdx
       else:
@@ -169,15 +169,15 @@ proc run*[C](
         triggerFail()
 
     of opExceptSet:
-      if inputCursor < input.len and input[inputCursor] notin inst.valSet:
+      if inputCursor < input.len and input[inputCursor] notin glyph.setPool[inst.valSetIdx]:
         log "Matched ExceptSet"
         inc inputCursor; inc instructionIdx
       else:
-        recordFailure("anything but '" & prettySet(inst.valSet) & "'")
+        recordFailure("anything but '" & prettySet(glyph.setPool[inst.valSetIdx]) & "'")
         triggerFail()
 
     of opExceptStr:
-      let s = inst.valStr
+      let s = glyph.strPool[inst.valStrIdx]
       if inputCursor + s.len <= input.len and input[inputCursor ..< inputCursor + s.len] == s:
          recordFailure("anything but " & escape(s))
          triggerFail()
