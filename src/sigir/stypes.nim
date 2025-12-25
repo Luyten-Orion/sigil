@@ -1,64 +1,37 @@
-import std/[tables]
 import sigil
 
 type
   OpCode* = enum
-    # Matching ops
+    # Matching
     opChar, opSet, opAny, opStr
-    # Exclusion ops
+    # Exclusion
     opExceptChar, opExceptSet, opExceptStr
     # Control flow
     opJump, opChoice, opCommit, opFail
-    # Linking & Calls
-    opRuleCall, opCall, opReturn
+    # Lookahead
+    opPeek,   # Positive lookahead
+    opReject  # Negative lookahead
+    # Subroutines
+    opCall, opReturn
     # Captures
     opCapPushPos, opCapPopPos
-    # Action (callbacks)
+    # Actions
     opAction
     # Error reporting
     opPushErrLabel, opPopErrLabel
 
-  Instruction*[C: Ctx] = object
+  Instruction* = object
     case op*: OpCode
     of opChar, opExceptChar: valChar*: char
-    # Indexes into `Glyph.setPool`
-    of opSet, opExceptSet: valSetIdx*: int
-    # Indexes into `Glyph.strPool`
-    of opStr, opRuleCall, opExceptStr, opPushErrLabel: valStrIdx*: int
-    of opJump, opChoice, opCommit, opCall: valTarget*: int
-    # TODO: Make an action pool (removes the need for generic `Instruction`)
-    of opAction: actionFunc*: ActionProc[C]
+    of opSet, opExceptSet:   valSetIdx*: int
+    of opStr, opExceptStr, opPushErrLabel: valStrIdx*: int
+    of opJump, opChoice, opCommit, opCall, opPeek, opReject: valTarget*: int
+    of opAction: valActionIdx*: int
     else: discard
 
-  ParserBuilder*[C: Ctx] = object
-    id*: string
-    name*: string
-    instructions*: seq[Instruction[C]]
-    localStrPool*: seq[string]
-    localSetPool*: seq[set[char]]
-
-  ParserLibrary*[C: Ctx] = object
-    rules*: Table[string, ParserBuilder[C]]
-
+  # The executable program
   Glyph*[C: Ctx] = object
-    insts*: seq[Instruction[C]]
+    insts*: seq[Instruction]
     strPool*: seq[string]
     setPool*: seq[set[char]]
-
-# Basic constructors
-func initParser*[C: Ctx](id, name: string): ParserBuilder[C] =
-  ParserBuilder[C](id: id, name: name)
-
-func initLibrary*[C: Ctx](): ParserLibrary[C] =
-  result.rules = initTable[string, ParserBuilder[C]]()
-
-# TODO: Maybe add an overload for converting instructions from one
-# type, to another? We just need to verify that there are no
-# action instructions.
-func add*[C: Ctx](lib: var ParserLibrary[C], p: ParserBuilder[C]) =
-  if p.id in lib.rules:
-    raise newException(ValueError, "Library Error: Rule '" & p.id & "' already exists.")
-  lib.rules[p.id] = p
-
-func add*[C: Ctx](lib: var ParserLibrary[C], other: ParserLibrary[C]) =
-  for id, p in other.rules: lib.add(p)
+    actionPool*: seq[ActionProc[C]]

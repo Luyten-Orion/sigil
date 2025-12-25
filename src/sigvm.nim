@@ -41,6 +41,8 @@ type
     finalCapLen: int
     callStackLen: int
     labelStackLen: int
+    isLookahead: bool
+    invertLookahead: bool
 
   CallFrame = object
     returnIdx: int
@@ -93,13 +95,29 @@ proc run*[C: Ctx](
   template triggerFail() =
     if backtrackStack.len > 0:
       let frame = backtrackStack.pop()
-      instructionIdx = frame.resumeIdx
-      inputCursor = frame.cursorPos
-      captureStartStack.setLen(frame.capStackLen)
-      finalCaptures.setLen(frame.finalCapLen)
-      callStack.setLen(frame.callStackLen)
-      labelStack.setLen(frame.labelStackLen) 
-      log "Backtracking to " & $instructionIdx
+
+      if frame.isLookahead:
+        if frame.isInverted:
+          log "Negative lookahead no matched (success)"
+          instructionIdx = frame.resumeIdx
+          inputCursor = frame.cursorPos
+          captureStartStack.setLen(frame.capStackLen)
+          finalCaptures.setLen(frame.finalCapLen)
+          callStack.setLen(frame.callStackLen)
+          labelStack.setLen(frame.labelStackLen) 
+          log "Resuming at " & $instructionIdx
+        else:
+          log "Positive lookahead no matched (fail)"
+          recordFailure("Positive lookahead no matched (fail)")
+          triggerFail()
+      else:
+        instructionIdx = frame.resumeIdx
+        inputCursor = frame.cursorPos
+        captureStartStack.setLen(frame.capStackLen)
+        finalCaptures.setLen(frame.finalCapLen)
+        callStack.setLen(frame.callStackLen)
+        labelStack.setLen(frame.labelStackLen) 
+        log "Backtracking to " & $instructionIdx
     else:
       log "Hard Fail"
       var errs: seq[string]
@@ -193,10 +211,11 @@ proc run*[C: Ctx](
     # Actions
     of opAction:
       # Execute user defined code with the context and current captures
-      let ok = inst.actionFunc(ctx, finalCaptures)
+      let act = glyph.actionPool[inst.valActionIdx]
+
+      let ok = act(ctx, finalCaptures)
       if ok:
         log "Action Succeeded"
-        # Consume captured strings
         finalCaptures.setLen(0)
         inc instructionIdx
       else:
@@ -225,13 +244,46 @@ proc run*[C: Ctx](
 
     of opCommit:
       if backtrackStack.len > 0:
-        discard backtrackStack.pop()
-        instructionIdx = inst.valTarget
+        let frame = backtrackStack.pop()
+
+        if frame.isLookahead:
+          if frame.invertLookahead:
+            log "Negative lookahead matched (fail)"
+            recordFailure("Negative lookahead matched (fail)")
+            triggerFail()
+          else:
+            log "Positive lookahead matched (success)"
+            inputCursor = frame.cursorPos
+            captureStartStack.setLen(frame.capStackLen)
+            finalCaptures.setLen(frame.finalCapLen)
+            callStack.setLen(frame.callStackLen)
+            labelStack.setLen(frame.labelStackLen)
+            instructionIdx = frame.resumeIdx
+        else:
+          instructionIdx = inst.valTarget
       else:
         return VmResult(success: false)
 
     of opFail:
       triggerFail()
+
+# Lookahead
+    of opPeek, opReject:
+      let isInverted = (inst.op != opPeek)
+      log "Start Lookahead -> " & $inst.valTarget & " Inverted: " & $isInverted
+      
+      backtrackStack.add BacktrackFrame(
+        resumeIdx: inst.valTarget,
+        cursorPos: inputCursor, 
+        capStackLen: captureStartStack.len,
+        finalCapLen: finalCaptures.len,
+        callStackLen: callStack.len,
+        labelStackLen: labelStack.len,
+        isLookahead: true,
+        invertLookahead: isInverted
+      )
+
+      inc instructionIdx
 
     # Subroutines
     of opCall:
@@ -241,9 +293,6 @@ proc run*[C: Ctx](
     of opReturn:
       if callStack.len > 0: instructionIdx = callStack.pop().returnIdx
       else: break
-
-    of opRuleCall:
-      raise newException(ValueError, "VM Error: Encountered opRuleCall. Did you forget to link()?")
 
     # Captures
     of opCapPushPos:
