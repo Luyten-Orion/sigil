@@ -85,12 +85,39 @@ func `==`*(a, b: StrPoolIdx): bool {.borrow.}
 func `==`*(a, b: SetPoolIdx): bool {.borrow.}
 func `==`*(a, b: RuleIdx): bool {.borrow.}
 func `==`*(a, b: ActionIdx): bool {.borrow.}
+func `==`*(a, b: Verse): bool =
+  if a.kind != b.kind: return false
+  case a.kind
+  of vkSeq:
+    a.spineStart == b.spineStart and a.spineLen == b.spineLen
+  of vkChoice:
+    a.tryVerse == b.tryVerse and a.elseVerse == b.elseVerse
+  of vkLoop, vkCapture:
+    a.bodyVerse == b.bodyVerse
+  of vkCall:
+    a.ruleIdx == b.ruleIdx
+  of vkAction:
+    a.actionIdx == b.actionIdx
+  of vkErrorLabel:
+    a.labelledVerseIdx == b.labelledVerseIdx and a.labelStrIdx == b.labelStrIdx
+  of vkLookahead:
+    a.lookaheadVerse == b.lookaheadVerse and a.invert == b.invert
+  of vkCheckMatch, vkCheckNoMatch:
+    if a.checkType != b.checkType: false
+    else:
+      case a.checkType
+      of ckChar: a.valChar == b.valChar
+      of ckStr: a.strPoolIdx == b.strPoolIdx
+      of ckSet: a.setPoolIdx == b.setPoolIdx
+      of ckAny: true
+
 func `$`*(a: VerseIdx): string = "v@" & $int(a)
 func `$`*(a: SpineIdx): string = "s@" & $int(a)
 func `$`*(a: StrPoolIdx): string = "pstr@" & $int(a)
 func `$`*(a: SetPoolIdx): string = "pset@" & $int(a)
 func `$`*(a: RuleIdx): string = "r@" & $int(a)
 func `$`*(a: ActionIdx): string = "a@" & $int(a)
+
 func `[]`*(c: Codex, idx: VerseIdx): Verse = c.verses[idx.int]
 func `[]`*(c: Codex, idx: SpineIdx): VerseIdx = c.spine[idx.int]
 func `[]`*(c: Codex, idx: StrPoolIdx): string = c.strPool[idx.int]
@@ -99,24 +126,34 @@ func `[]`*(c: Codex, idx: RuleIdx): RuleDef = c.rulePool[idx.int]
 func `[]`*[C: Ctx](c: Codex[C], idx: ActionIdx): ActionProc[C] =
   c.actionPool[idx.int]
 
+func `[]`*(c: ref Codex, idx: VerseIdx): Verse = c[][idx]
+func `[]`*(c: ref Codex, idx: SpineIdx): VerseIdx = c[][idx]
+func `[]`*(c: ref Codex, idx: StrPoolIdx): string = c[][idx]
+func `[]`*(c: ref Codex, idx: SetPoolIdx): set[char] = c[][idx]
+func `[]`*(c: ref Codex, idx: RuleIdx): RuleDef = c[][idx]
+func `[]`*[C: Ctx](c: ref Codex[C], idx: ActionIdx): ActionProc[C] = c[][idx]
+
 func add*(c: var Codex, v: Verse): VerseIdx =
   VerseIdx(c.verses.getOrAdd(v))
-
 func add*(c: var Codex, v: VerseIdx): SpineIdx =
   result = SpineIdx(c.spine.len)
   c.spine.add(v)
-
 func add*(c: var Codex, v: string): StrPoolIdx =
   StrPoolIdx(c.strPool.getOrAdd(v))
-
 func add*(c: var Codex, v: set[char]): SetPoolIdx =
   SetPoolIdx(c.setPool.getOrAdd(v))
-
 func add*(c: var Codex, v: RuleDef): RuleIdx =
   RuleIdx(c.rulePool.getOrAdd(v))
-
 func add*[C: Ctx](c: var Codex[C], v: ActionProc[C]): ActionIdx =
   ActionIdx(c.actionPool.getOrAdd(v))
+
+func add*(c: ref Codex, v: Verse): VerseIdx = c[].add(v)
+func add*(c: ref Codex, v: VerseIdx): SpineIdx = c[].add(v)
+func add*(c: ref Codex, v: string): StrPoolIdx = c[].add(v)
+func add*(c: ref Codex, v: set[char]): SetPoolIdx = c[].add(v)
+func add*(c: ref Codex, v: RuleDef): RuleIdx = c[].add(v)
+func add*[C: Ctx](c: ref Codex[C], v: ActionProc[C]): ActionIdx = c[].add(v)
+
 
 # Verse helpers
 func seq*(T: typedesc[Verse], spineStart: SpineIdx, spineLen: int): T = T(
@@ -165,10 +202,10 @@ func checkMatch*(T: typedesc[Verse], _: var Codex, ch: char): T = T(
   kind: vkCheckMatch, checkType: ckChar, valChar: ch
 )
 func checkMatch*(T: typedesc[Verse], c: var Codex, s: string): T = T(
-  kind: vkCheckMatch, checkType: ckStr, strIdx: c.add(s)
+  kind: vkCheckMatch, checkType: ckStr, strPoolIdx: c.add(s)
 )
 func checkMatch*(T: typedesc[Verse], c: var Codex, s: set[char]): T = T(
-  kind: vkCheckMatch, checkType: ckSet, setIdx: c.add(s)
+  kind: vkCheckMatch, checkType: ckSet, setPoolIdx: c.add(s)
 )
 
 func checkNoMatch*(T: typedesc[Verse], ch: char): T = T(
@@ -177,11 +214,8 @@ func checkNoMatch*(T: typedesc[Verse], ch: char): T = T(
 func checkNoMatch*(T: typedesc[Verse], _: var Codex, ch: char): T = T(
   kind: vkCheckNoMatch, checkType: ckChar, valChar: ch
 )
-func checkNoMatch*(T: typedesc[Verse], c: var Codex, s: string): T = T(
-  kind: vkCheckNoMatch, checkType: ckStr, strIdx: c.add(s)
-)
 func checkNoMatch*(T: typedesc[Verse], c: var Codex, s: set[char]): T = T(
-  kind: vkCheckNoMatch, checkType: ckSet, setIdx: c.add(s)
+  kind: vkCheckNoMatch, checkType: ckSet, setPoolIdx: c.add(s)
 )
 
 func checkMatchAny*(T: typedesc[Verse]): T = T(

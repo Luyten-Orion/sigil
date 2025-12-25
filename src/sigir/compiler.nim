@@ -19,13 +19,18 @@ type
 # Helpers
 func emit[C: Ctx](ctx: var CompileCtx[C], op: OpCode, val = 0): int =
   result = ctx.glyph.insts.len
-  ctx.glyph.insts.add Instruction(op: op, valTarget: val)
+  case op
+  of opJump, opChoice, opCommit, opCall, opPeek, opReject:
+    ctx.glyph.insts.add Instruction(op: op, valTarget: val)
+  else:
+    ctx.glyph.insts.add Instruction(op: op)
 
 func emit[C: Ctx](ctx: var CompileCtx[C], op: OpCode, c: char) =
-  ctx.glyph.insts.add Instruction(op: op, valChar: c)
-
-func emit[C: Ctx](ctx: var CompileCtx[C], op: OpCode, idx: int) =
-  ctx.glyph.insts.add Instruction(op: op, valTarget: idx)
+  case op
+  of opChar, opExceptChar:
+    ctx.glyph.insts.add Instruction(op: op, valChar: c)
+  else:
+    assert false, "Unreachable"
 
 func getOrAdd[T](
   pool: var seq[T],
@@ -65,27 +70,27 @@ proc compileVerse[C: Ctx](ctx: var CompileCtx[C], idx: VerseIdx) =
     let startIdx = ctx.emit(opChoice, 0)
     ctx.compileVerse(v.bodyVerse)
     # Loop back on success
-    ctx.emit(opCommit, startIdx)
+    discard ctx.emit(opCommit, startIdx)
     # Patch exit
     patch(startIdx)
 
   of vkCapture:
-    ctx.emit(opCapPushPos)
+    discard ctx.emit(opCapPushPos)
     ctx.compileVerse(v.bodyVerse)
-    ctx.emit(opCapPopPos)
+    discard ctx.emit(opCapPopPos)
 
   of vkErrorLabel:
     let idx = ctx.glyph.strPool.getOrAdd(ctx.codex[v.labelStrIdx])
     ctx.glyph.insts.add Instruction(op: opPushErrLabel, valStrIdx: idx)
     ctx.compileVerse(v.labelledVerseIdx)
-    ctx.emit(opPopErrLabel)
+    discard ctx.emit(opPopErrLabel)
   
   of vkLookahead:
     let op = if v.invert: opReject else: opPeek
     let jmp = ctx.emit(op, 0)
     ctx.compileVerse(v.lookaheadVerse)
     # Commit
-    ctx.emit(opCommit, 0)
+    discard ctx.emit(opCommit, 0)
     # Lookahead must skip to after the block
     patch(jmp)
 
@@ -105,35 +110,41 @@ proc compileVerse[C: Ctx](ctx: var CompileCtx[C], idx: VerseIdx) =
     of ckChar: 
       ctx.emit(if isMatch: opChar else: opExceptChar, v.valChar)
     of ckAny:  
-      ctx.emit(opAny)
+      discard ctx.emit(opAny)
     of ckStr:
       let idx = ctx.glyph.strPool.getOrAdd(ctx.codex[v.strPoolIdx])
-      ctx.glyph.insts.add Instruction(op: if isMatch: opStr else: opExceptStr, valStrIdx: idx)
+      ctx.glyph.insts.add Instruction(op: opStr, valStrIdx: idx)
     of ckSet:
-      let idx = ctx.glyph.setPool.getOrAdd(ctx.codex[v.setPoolIdx])
-      ctx.glyph.insts.add Instruction(op: if isMatch: opSet else: opExceptSet, valSetIdx: idx)
+      let
+        idx = ctx.glyph.setPool.getOrAdd(ctx.codex[v.setPoolIdx])
+        inst = case isMatch
+          of true: Instruction(op: opSet, valSetIdx: idx)
+          of false: Instruction(op: opExceptSet, valSetIdx: idx)
+      ctx.glyph.insts.add inst
 
 
 # Entrypoint
 proc compile*[C: Ctx](entry: Rule[C]): Glyph[C] =
-  var ctx = CompileCtx[C: Ctx](
-    codex: entry.builder.codex,
+  var ctx = CompileCtx[C](
+    codex: entry.builder.codex[],
     ruleMap: initTable[RuleIdx, int](),
   )
 
   # Acts as the entrypoint
   ctx.ruleMap[entry.id] = 0
   ctx.compileVerse(ctx.codex[entry.id].entry)
-  ctx.emit(opReturn)
+  discard ctx.emit(opReturn)
 
   # Compile all rules in the codex
   for i, def in ctx.codex.rulePool:
     let rIdx = RuleIdx(i)
     if rIdx == entry.id: continue
+    # Forward decl
+    if def.entry.int == -1: continue
 
     ctx.ruleMap[rIdx] = ctx.glyph.insts.len
     ctx.compileVerse(def.entry)
-    ctx.emit(opReturn)
+    discard ctx.emit(opReturn)
 
   # Resolve unresolved calls
   for pc in ctx.unresolvedCalls:

@@ -5,7 +5,7 @@ type
     # Matching
     opChar, opSet, opAny, opStr
     # Exclusion
-    opExceptChar, opExceptSet, opExceptStr
+    opExceptChar, opExceptSet
     # Control flow
     opJump, opChoice, opCommit, opFail
     # Lookahead
@@ -24,7 +24,7 @@ type
     case op*: OpCode
     of opChar, opExceptChar: valChar*: char
     of opSet, opExceptSet:   valSetIdx*: int
-    of opStr, opExceptStr, opPushErrLabel: valStrIdx*: int
+    of opStr, opPushErrLabel: valStrIdx*: int
     of opJump, opChoice, opCommit, opCall, opPeek, opReject: valTarget*: int
     of opAction: valActionIdx*: int
     else: discard

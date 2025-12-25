@@ -93,46 +93,63 @@ proc run*[C: Ctx](
       failuresAtMax.incl(finalMsg)
 
   template triggerFail() =
-    if backtrackStack.len > 0:
-      let frame = backtrackStack.pop()
+    block failureLoop:
+      var handled = false
+      
+      while backtrackStack.len > 0:
+        let frame = backtrackStack.pop()
 
-      if frame.isLookahead:
-        if frame.isInverted:
-          log "Negative lookahead no matched (success)"
+        if frame.isLookahead:
+          if frame.invertLookahead:
+            # Case: !p. Inner failed -> Success for us.
+            log "Negative lookahead no matched (success)"
+            
+            # Restore state
+            instructionIdx = frame.resumeIdx
+            inputCursor = frame.cursorPos
+            captureStartStack.setLen(frame.capStackLen)
+            finalCaptures.setLen(frame.finalCapLen)
+            callStack.setLen(frame.callStackLen)
+            labelStack.setLen(frame.labelStackLen) 
+            log "Resuming at " & $instructionIdx
+            
+            handled = true
+            break failureLoop # Stop popping, we recovered
+          else:
+            # Case: &p. Inner failed -> Failure for us.
+            # Bubble up the failure by continuing the while loop
+            log "Positive lookahead no matched (fail)"
+            recordFailure("Positive lookahead no matched (fail)")
+            # Continue...
+        else:
+          # Standard Backtrack
           instructionIdx = frame.resumeIdx
           inputCursor = frame.cursorPos
           captureStartStack.setLen(frame.capStackLen)
           finalCaptures.setLen(frame.finalCapLen)
           callStack.setLen(frame.callStackLen)
           labelStack.setLen(frame.labelStackLen) 
-          log "Resuming at " & $instructionIdx
-        else:
-          log "Positive lookahead no matched (fail)"
-          recordFailure("Positive lookahead no matched (fail)")
-          triggerFail()
-      else:
-        instructionIdx = frame.resumeIdx
-        inputCursor = frame.cursorPos
-        captureStartStack.setLen(frame.capStackLen)
-        finalCaptures.setLen(frame.finalCapLen)
-        callStack.setLen(frame.callStackLen)
-        labelStack.setLen(frame.labelStackLen) 
-        log "Backtracking to " & $instructionIdx
-    else:
-      log "Hard Fail"
-      var errs: seq[string]
-      for e in failuresAtMax: errs.add(e)
-      
-      let found = block:
-        if furthestFailureIdx >= input.len: "End of Input"
-        else: "`" & prettyChar(input[furthestFailureIdx]) & "`"
+          log "Backtracking to " & $instructionIdx
+          
+          handled = true
+          break failureLoop # Recovered
 
-      return VmResult(
-        success: false, 
-        furthestFailureIdx: furthestFailureIdx, 
-        expectedTerminals: errs,
-        foundTerminal: found
-      )
+      if not handled:
+        # Stack exhausted or no handler found
+        log "Hard Fail"
+        var errs: seq[string]
+        for e in failuresAtMax.items: errs.add(e)
+        
+        let found = block:
+          if furthestFailureIdx >= input.len: "End of Input"
+          else: "`" & prettyChar(input[furthestFailureIdx]) & "`"
+
+        return VmResult(
+          success: false, 
+          furthestFailureIdx: furthestFailureIdx, 
+          expectedTerminals: errs,
+          foundTerminal: found
+        )
 
   while instructionIdx < glyph.insts.len:
     let inst = glyph.insts[instructionIdx]
@@ -194,19 +211,6 @@ proc run*[C: Ctx](
       else:
         recordFailure("anything but '" & prettySet(glyph.setPool[inst.valSetIdx]) & "'")
         triggerFail()
-
-    of opExceptStr:
-      let s = glyph.strPool[inst.valStrIdx]
-      if inputCursor + s.len <= input.len and input[inputCursor ..< inputCursor + s.len] == s:
-         recordFailure("anything but " & escape(s))
-         triggerFail()
-      elif inputCursor < input.len:
-         log "Matched ExceptString (\"" & s & "\")"
-         inc inputCursor; inc instructionIdx
-      else:
-         # EOF
-         recordFailure("any character")
-         triggerFail()
 
     # Actions
     of opAction:
