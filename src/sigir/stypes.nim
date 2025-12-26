@@ -3,9 +3,9 @@ import sigil
 type
   OpCode* = enum
     # Matching
-    opChar, opSet, opAny, opStr
+    opAtom, opSet, opAny, opSeqAtom
     # Exclusion
-    opExceptChar, opExceptSet
+    opExceptAtom, opExceptSet
     # Control flow
     opJump, opChoice, opCommit, opFail
     # Lookahead
@@ -14,24 +14,36 @@ type
     # Subroutines
     opCall, opReturn
     # Captures
-    opCapPushPos, opCapPopPos
+    opCapPushPos, opSiphonPop
     # Actions
-    opAction
+    opTransmute
+    opAbsorb
+    opScry
     # Error reporting
     opPushErrLabel, opPopErrLabel
 
-  Instruction* = object
+  # TODO: Use the same `distinct` types we use for indexing in ctypes
+  Instruction*[G: Ordinal, A: Atom] = object
     case op*: OpCode
-    of opChar, opExceptChar: valChar*: char
-    of opSet, opExceptSet:   valSetIdx*: int
-    of opStr, opPushErrLabel: valStrIdx*: int
+    of opAtom, opExceptAtom: valAtom*: A
+    of opSet, opExceptSet: valSetIdx*: int
+    of opSeqAtom: valPoolIdx*: int
+    of opPushErrLabel: valStrIdx*: int
     of opJump, opChoice, opCommit, opCall, opPeek, opReject: valTarget*: int
-    of opAction: valActionIdx*: int
+    of opSiphonPop: siphonChannel*: G
+    of opTransmute:
+      valTransmuteIdx*: int
+      transmuteChannel*: G
+    of opAbsorb: valAbsorbIdx*: int
+    of opScry: valScryIdx*: int
     else: discard
 
   # The executable program
-  Glyph*[C: Ctx] = object
-    insts*: seq[Instruction]
+  Glyph*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = object
+    insts*: seq[Instruction[G, A]]
     strPool*: seq[string]
-    setPool*: seq[set[char]]
-    actionPool*: seq[ActionProc[C]]
+    atomPool*: seq[seq[A]]
+    setPool*: seq[set[A]]
+    transmutePool*: seq[TransmuteProc[C, G, A, L]]
+    absorbPool*: seq[AbsorbProc[C, G, A, L]]
+    scryPool*: seq[ScryProc[C, G, A, L]]

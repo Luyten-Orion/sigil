@@ -4,41 +4,82 @@ import std/[
 import sigil
 import sigil/sigir/stypes
 
+func prettyAtom[A](a: A): string = 
+  when A is char: 
+    escape($a, "", "")
+  else: 
+    "0x" & toHex(a)
 
-# Friendly-ish default error reporting
-template prettyChar(c: char): string = escape($c, "", "")
+func prettySet[A](s: set[A]): string =
+  when A is char:
+    var
+      ranges: seq[string]
+      start = '\0'
+      inRange = false
+    for c in '\0'..'\255':
+      if c in s:
+        if not inRange:
+          start = c
+          inRange = true
+      else:
+        if inRange:
+          let stop = char(ord(c) - 1)
+          if start == stop: ranges.add(prettyAtom(start))
+          elif ord(stop) == ord(start) + 1:
+             ranges.add(prettyAtom(start)); ranges.add(prettyAtom(stop))
+          else: ranges.add(prettyAtom(start) & "-" & prettyAtom(stop))
+          inRange = false
+    if inRange:
+      let stop = '\255'
+      if start == stop: ranges.add(prettyAtom(start))
+      else: ranges.add(prettyAtom(start) & "-" & prettyAtom(stop))
+    return "[" & ranges.join("") & "]"
+  else:
+    var
+      ranges: seq[string]
+      start = 0.uint8
+      inRange = false
+    for i in 0..255:
+      let c = i.uint8
+      if c in s:
+        if not inRange:
+          start = c
+          inRange = true
+      else:
+        if inRange:
+          let stop = (i - 1).uint8
+          if start == stop: ranges.add(prettyAtom(start))
+          elif stop == start + 1:
+             ranges.add(prettyAtom(start)); ranges.add(prettyAtom(stop))
+          else: ranges.add(prettyAtom(start) & "-" & prettyAtom(stop))
+          inRange = false
+    if inRange:
+      let stop = 255.uint8
+      if start == stop: ranges.add(prettyAtom(start))
+      else: ranges.add(prettyAtom(start) & "-" & prettyAtom(stop))
+    return "[" & ranges.join(", ") & "]"
 
-func prettySet(s: set[char]): string =
-  var
-    ranges: seq[string]
-    start = '\0'
-    inRange = false
-  for c in '\0'..'\255':
-    if c in s:
-      if not inRange:
-        start = c
-        inRange = true
-    else:
-      if inRange:
-        let stop = char(ord(c) - 1)
-        if start == stop: ranges.add(prettyChar(start))
-        elif ord(stop) == ord(start) + 1:
-           ranges.add(prettyChar(start)); ranges.add(prettyChar(stop))
-        else: ranges.add(prettyChar(start) & "-" & prettyChar(stop))
-        inRange = false
-  if inRange:
-    let stop = '\255'
-    if start == stop: ranges.add(prettyChar(start))
-    else: ranges.add(prettyChar(start) & "-" & prettyChar(stop))
-  return "[" & ranges.join("") & "]"
-
+func prettySeq[A](s: seq[A]): string =
+  when A is char:
+    var buf = newStringOfCap(s.len)
+    for c in s: buf.add(prettyAtom(c))
+    escape(buf, "", "")
+  else:
+    # Hex Dump style for bytes
+    var parts: seq[string]
+    let limit = 8
+    for i, x in s:
+      if i >= limit: 
+        parts.add("...")
+        break
+      parts.add(toHex(x))
+    "[" & parts.join(" ") & "]"
 
 type
   BacktrackFrame = object
     resumeIdx: int
     cursorPos: int
-    capStackLen: int
-    finalCapLen: int
+    capStackLen: int     
     callStackLen: int
     labelStackLen: int
     isLookahead: bool
@@ -50,103 +91,77 @@ type
   VmResult* = object
     success*: bool
     matchLen*: int
-    captures*: seq[string]
     furthestFailureIdx*: int
-    # TODO: Add friendlier error reporting
     expectedTerminals*: seq[string]
     foundTerminal*: string
 
-
-proc run*[C: Ctx](
-  glyph: Glyph[C],
-  input: string,
-  ctx: var C,
+proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  glyph: Glyph[C, G, A, L],
+  input: seq[A],
+  ctx: var ParserCtx[C, G, A, L],
   debug = false
 ): VmResult =
   var
     instructionIdx = 0
-    inputCursor = 0
     backtrackStack: seq[BacktrackFrame]
     callStack: seq[CallFrame]
-    
     captureStartStack: seq[int]
-    finalCaptures: seq[string]
-
     labelStack: seq[string]
-
     furthestFailureIdx = -1
     failuresAtMax: HashSet[string]
+  
+  ctx.cursorPos = 0
 
   template log(msg: string) =
-    if debug: echo "[Inst: ", instructionIdx, " Cursor: ", inputCursor, "] ", msg
+    if debug: echo "[Inst: ", instructionIdx, " Cursor: ", ctx.cursorPos, "] ", msg
 
-  template recordFailure(lowLevelMsg: string) =
-    let finalMsg = if labelStack.len > 0: labelStack[^1] else: lowLevelMsg
-
-    if inputCursor > furthestFailureIdx:
-      # Deepest failure is likely the most correct path
-      furthestFailureIdx = inputCursor
+  template recordFailure(msg: string) =
+    let finalMsg = if labelStack.len > 0: labelStack[^1] else: msg
+    if ctx.cursorPos > furthestFailureIdx:
+      furthestFailureIdx = ctx.cursorPos
       failuresAtMax.clear()
       failuresAtMax.incl(finalMsg)
-    elif inputCursor == furthestFailureIdx:
-      # Same depth, record in the set
+    elif ctx.cursorPos == furthestFailureIdx:
       failuresAtMax.incl(finalMsg)
 
   template triggerFail() =
     block failureLoop:
       var handled = false
-      
       while backtrackStack.len > 0:
         let frame = backtrackStack.pop()
-
-        if frame.isLookahead:
-          if frame.invertLookahead:
-            # Case: !p. Inner failed -> Success for us.
-            log "Negative lookahead no matched (success)"
-            
-            # Restore state
-            instructionIdx = frame.resumeIdx
-            inputCursor = frame.cursorPos
-            captureStartStack.setLen(frame.capStackLen)
-            finalCaptures.setLen(frame.finalCapLen)
-            callStack.setLen(frame.callStackLen)
-            labelStack.setLen(frame.labelStackLen) 
-            log "Resuming at " & $instructionIdx
-            
-            handled = true
-            break failureLoop # Stop popping, we recovered
-          else:
-            # Case: &p. Inner failed -> Failure for us.
-            # Bubble up the failure by continuing the while loop
-            log "Positive lookahead no matched (fail)"
-            recordFailure("Positive lookahead no matched (fail)")
-            # Continue...
+        
+        if not frame.isLookahead:
+           ctx.cursorPos = frame.cursorPos
+           captureStartStack.setLen(frame.capStackLen)
+           callStack.setLen(frame.callStackLen)
+           labelStack.setLen(frame.labelStackLen)
+           
+           instructionIdx = frame.resumeIdx
+           handled = true
+           log "Backtracking..."
+           break failureLoop
         else:
-          # Standard Backtrack
-          instructionIdx = frame.resumeIdx
-          inputCursor = frame.cursorPos
-          captureStartStack.setLen(frame.capStackLen)
-          finalCaptures.setLen(frame.finalCapLen)
-          callStack.setLen(frame.callStackLen)
-          labelStack.setLen(frame.labelStackLen) 
-          log "Backtracking to " & $instructionIdx
-          
-          handled = true
-          break failureLoop # Recovered
+           if frame.invertLookahead:
+             log "Neg Lookahead Success"
+             instructionIdx = frame.resumeIdx
+             handled = true
+             break failureLoop
+           else:
+             log "Pos Lookahead Fail"
+             continue 
 
       if not handled:
-        # Stack exhausted or no handler found
         log "Hard Fail"
         var errs: seq[string]
         for e in failuresAtMax.items: errs.add(e)
         
         let found = block:
           if furthestFailureIdx >= input.len: "End of Input"
-          else: "`" & prettyChar(input[furthestFailureIdx]) & "`"
+          else: "`" & prettyAtom(input[furthestFailureIdx]) & "`"
 
         return VmResult(
           success: false, 
-          furthestFailureIdx: furthestFailureIdx, 
+          furthestFailureIdx: furthestFailureIdx,
           expectedTerminals: errs,
           foundTerminal: found
         )
@@ -155,160 +170,163 @@ proc run*[C: Ctx](
     let inst = glyph.insts[instructionIdx]
     
     case inst.op
-    # Err ops
-    of opPushErrLabel:
-      labelStack.add(glyph.strPool[inst.valStrIdx])
-      inc instructionIdx
-      
-    of opPopErrLabel:
-      if labelStack.len > 0:
-        discard labelStack.pop()
-      inc instructionIdx
-
-    # Match
-    of opChar:
-      if inputCursor < input.len and input[inputCursor] == inst.valChar:
-        inc inputCursor; inc instructionIdx
+    of opAtom:
+      if ctx.cursorPos < input.len and input[ctx.cursorPos] == inst.valAtom:
+        inc ctx.cursorPos; inc instructionIdx
+        when L: ctx.column.inc 
       else:
-        recordFailure("'" & prettyChar(inst.valChar) & "'")
+        recordFailure(prettyAtom(inst.valAtom))
         triggerFail()
-
+        
     of opSet:
-      if inputCursor < input.len and input[inputCursor] in glyph.setPool[inst.valSetIdx]:
-        inc inputCursor; inc instructionIdx
+      if ctx.cursorPos < input.len and input[ctx.cursorPos] in glyph.setPool[inst.valSetIdx]:
+        inc ctx.cursorPos; inc instructionIdx
+        when L: ctx.column.inc
       else:
         recordFailure(prettySet(glyph.setPool[inst.valSetIdx]))
         triggerFail()
 
-    of opStr:
-      let s = glyph.strPool[inst.valStrIdx]
-      if inputCursor + s.len <= input.len and input[inputCursor ..< inputCursor + s.len] == s:
-        inputCursor += s.len; inc instructionIdx
+    of opSeqAtom:
+      let s = glyph.atomPool[inst.valPoolIdx]
+      if ctx.cursorPos + s.len <= input.len:
+        var match = true
+        for i in 0..<s.len:
+          if input[ctx.cursorPos+i] != s[i]: 
+            match = false; break
+        
+        if match:
+          ctx.cursorPos += s.len; inc instructionIdx
+          when L: ctx.column += s.len
+        else:
+          recordFailure(prettySeq(s))
+          triggerFail()
       else:
-        recordFailure(escape(s))
+        recordFailure(prettySeq(s))
         triggerFail()
-
+        
     of opAny:
-      if inputCursor < input.len:
-        inc inputCursor; inc instructionIdx
+      if ctx.cursorPos < input.len:
+        inc ctx.cursorPos; inc instructionIdx
+        when L: ctx.column.inc
       else:
-        recordFailure("any character")
+        recordFailure("Any")
         triggerFail()
 
-    # Exclusion
-    of opExceptChar:
-      if inputCursor < input.len and input[inputCursor] != inst.valChar:
-        log "Matched ExceptChar ('" & $inst.valChar & "')"
-        inc inputCursor; inc instructionIdx
+    of opExceptAtom:
+      if ctx.cursorPos < input.len and input[ctx.cursorPos] != inst.valAtom:
+        inc ctx.cursorPos; inc instructionIdx
+        when L: ctx.column.inc
       else:
-        recordFailure("anything but '" & prettyChar(inst.valChar) & "'")
+        recordFailure("Not " & prettyAtom(inst.valAtom))
         triggerFail()
 
     of opExceptSet:
-      if inputCursor < input.len and input[inputCursor] notin glyph.setPool[inst.valSetIdx]:
-        log "Matched ExceptSet"
-        inc inputCursor; inc instructionIdx
+      if ctx.cursorPos < input.len and input[ctx.cursorPos] notin glyph.setPool[inst.valSetIdx]:
+        inc ctx.cursorPos; inc instructionIdx
+        when L: ctx.column.inc
       else:
-        recordFailure("anything but '" & prettySet(glyph.setPool[inst.valSetIdx]) & "'")
+        recordFailure("Not " & prettySet(glyph.setPool[inst.valSetIdx]))
         triggerFail()
 
-    # Actions
-    of opAction:
-      # Execute user defined code with the context and current captures
-      let act = glyph.actionPool[inst.valActionIdx]
+    of opCapPushPos:
+      captureStartStack.add(ctx.cursorPos)
+      inc instructionIdx
 
-      let ok = act(ctx, finalCaptures)
-      if ok:
-        log "Action Succeeded"
-        finalCaptures.setLen(0)
+    of opSiphonPop:
+      if captureStartStack.len > 0:
+        let start = captureStartStack.pop()
+        ctx.channels[inst.siphonChannel] = input[start..<ctx.cursorPos]
+        inc instructionIdx
+      else: 
+        triggerFail()
+
+    of opTransmute:
+      let cb = glyph.transmutePool[inst.valTransmuteIdx]
+      if cb(ctx, ctx.channels[inst.transmuteChannel]):
         inc instructionIdx
       else:
-        log "Action Failed (User code returned false)"
-        # Do backtracking logic
-        # TODO: Fatal error, how?
-        # TODO: Make it so failed action returns error message?
-        recordFailure("Action Failed (User code returned false)")
+        recordFailure("Transmute Check Failed")
         triggerFail()
 
-    # Control flow
-    of opJump:
+    of opAbsorb:
+      if glyph.absorbPool[inst.valAbsorbIdx](ctx):
+        inc instructionIdx
+      else:
+        recordFailure("Absorb Failed")
+        triggerFail()
+
+    of opScry:
+      if glyph.scryPool[inst.valScryIdx](ctx):
+        inc instructionIdx
+      else:
+        recordFailure("Scry Failed")
+        triggerFail()
+
+    of opJump: 
       instructionIdx = inst.valTarget
 
     of opChoice:
       log "Push Choice -> " & $inst.valTarget
       backtrackStack.add BacktrackFrame(
-        resumeIdx: inst.valTarget, 
-        cursorPos: inputCursor, 
+        resumeIdx: inst.valTarget,
+        cursorPos: ctx.cursorPos,
         capStackLen: captureStartStack.len,
-        finalCapLen: finalCaptures.len,
         callStackLen: callStack.len,
         labelStackLen: labelStack.len
       )
       inc instructionIdx
-
+      
     of opCommit:
       if backtrackStack.len > 0:
         let frame = backtrackStack.pop()
-
         if frame.isLookahead:
-          if frame.invertLookahead:
-            log "Negative lookahead matched (fail)"
-            recordFailure("Negative lookahead matched (fail)")
-            triggerFail()
-          else:
-            log "Positive lookahead matched (success)"
-            inputCursor = frame.cursorPos
-            captureStartStack.setLen(frame.capStackLen)
-            finalCaptures.setLen(frame.finalCapLen)
-            callStack.setLen(frame.callStackLen)
-            labelStack.setLen(frame.labelStackLen)
-            instructionIdx = frame.resumeIdx
+           if frame.invertLookahead:
+             log "Neg Lookahead Match (Fail)"
+             recordFailure("Neg Lookahead Match")
+             triggerFail()
+           else:
+             log "Pos Lookahead Match (Success)"
+             ctx.cursorPos = frame.cursorPos
+             captureStartStack.setLen(frame.capStackLen)
+             callStack.setLen(frame.callStackLen)
+             labelStack.setLen(frame.labelStackLen)
+             instructionIdx = frame.resumeIdx
         else:
-          instructionIdx = inst.valTarget
+           instructionIdx = inst.valTarget
       else:
         return VmResult(success: false)
 
-    of opFail:
+    of opFail: 
       triggerFail()
 
-# Lookahead
     of opPeek, opReject:
       let isInverted = (inst.op != opPeek)
-      log "Start Lookahead -> " & $inst.valTarget & " Inverted: " & $isInverted
-      
+      log "Lookahead -> " & $inst.valTarget
       backtrackStack.add BacktrackFrame(
         resumeIdx: inst.valTarget,
-        cursorPos: inputCursor, 
+        cursorPos: ctx.cursorPos,
         capStackLen: captureStartStack.len,
-        finalCapLen: finalCaptures.len,
         callStackLen: callStack.len,
         labelStackLen: labelStack.len,
         isLookahead: true,
         invertLookahead: isInverted
       )
-
       inc instructionIdx
 
-    # Subroutines
     of opCall:
       callStack.add CallFrame(returnIdx: instructionIdx + 1)
       instructionIdx = inst.valTarget
-    
+
     of opReturn:
       if callStack.len > 0: instructionIdx = callStack.pop().returnIdx
-      else: break
+      else: break 
 
-    # Captures
-    of opCapPushPos:
-      captureStartStack.add(inputCursor)
+    of opPushErrLabel:
+      labelStack.add(glyph.strPool[inst.valStrIdx])
       inc instructionIdx
 
-    of opCapPopPos:
-      if captureStartStack.len > 0:
-        let start = captureStartStack.pop()
-        finalCaptures.add input[start..<inputCursor]
-        inc instructionIdx
-      else:
-        return VmResult(success: false)
+    of opPopErrLabel:
+      if labelStack.len > 0: discard labelStack.pop()
+      inc instructionIdx
 
-  VmResult(success: true, matchLen: inputCursor, captures: finalCaptures)
+  VmResult(success: true, matchLen: ctx.cursorPos)

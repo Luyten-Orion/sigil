@@ -1,48 +1,56 @@
-import std/[tables]
+import std/tables
 import sigil
-# Combinators only used for the `Rule` type.
+import sigil/sigir
+import sigil/codex
 import sigil/combinators
-import sigil/codex/ctypes
-import sigil/sigir/stypes
 
 type
   UnresolvedCall = object
     idx: int
     rIdx: RuleIdx
 
-  CompileCtx[C: Ctx] = object
-    codex: Codex[C]
-    glyph: Glyph[C]
+  CompileCtx[C; G: Ordinal; A; L: static bool] = object
+    codex: Codex[C, G, A, L]
+    glyph: Glyph[C, G, A, L]
     ruleMap: Table[RuleIdx, int]
     unresolvedCalls: seq[UnresolvedCall]
 
 # Helpers
-func emit[C: Ctx](ctx: var CompileCtx[C], op: OpCode, val = 0): int =
+func emit[C, G, A, L](ctx: var CompileCtx[C, G, A, L], op: OpCode, val: int = 0): int =
   result = ctx.glyph.insts.len
+  var inst = Instruction[G, A](op: op)
+  
   case op
   of opJump, opChoice, opCommit, opCall, opPeek, opReject:
-    ctx.glyph.insts.add Instruction(op: op, valTarget: val)
-  else:
-    ctx.glyph.insts.add Instruction(op: op)
+    inst.valTarget = val
+  of opTransmute:
+    inst.valTransmuteIdx = val
+  of opAbsorb:
+    inst.valAbsorbIdx = val
+  of opScry:
+    inst.valScryIdx = val
+  else: discard
+  
+  ctx.glyph.insts.add inst
 
-func emit[C: Ctx](ctx: var CompileCtx[C], op: OpCode, c: char) =
+func emit[C, G, A, L](ctx: var CompileCtx[C, G, A, L], op: OpCode, val: A) =
   case op
-  of opChar, opExceptChar:
-    ctx.glyph.insts.add Instruction(op: op, valChar: c)
+  of opAtom, opExceptAtom:
+    ctx.glyph.insts.add Instruction[G, A](op: op, valAtom: val)
   else:
-    assert false, "Unreachable"
+    assert true, "Unreachable"
 
-func getOrAdd[T](
-  pool: var seq[T],
-  val: T
-): int =
+func emitSiphon[C, G, A, L](ctx: var CompileCtx[C, G, A, L], channel: G) =
+  ctx.glyph.insts.add Instruction[G, A](op: opSiphonPop, siphonChannel: channel)
+
+func getOrAdd[T](pool: var seq[T], val: T): int =
   result = pool.find(val)
   if result == -1:
     pool.add(val)
     result = pool.high
 
-# Compilation go brr
-proc compileVerse[C: Ctx](ctx: var CompileCtx[C], idx: VerseIdx) =
+# Compilation
+proc compileVerse[C, G, A, L](ctx: var CompileCtx[C, G, A, L], idx: VerseIdx) =
   template patch(idx: int) =
     ctx.glyph.insts[idx].valTarget = ctx.glyph.insts.len
 
@@ -54,102 +62,112 @@ proc compileVerse[C: Ctx](ctx: var CompileCtx[C], idx: VerseIdx) =
       ctx.compileVerse(ctx.codex[SpineIdx(int(v.spineStart) + i)])
 
   of vkChoice:
-    # Try -> Jump(Else)
-    let tryJump = ctx.emit(opChoice, 0)
+    let tryJump = ctx.emit(opChoice)
     ctx.compileVerse(v.tryVerse)
-    # Try Success -> Jump(End)
-    let exitJump = ctx.emit(opCommit, 0)
-    # Else
+    let exitJump = ctx.emit(opCommit)
     patch(tryJump)
     ctx.compileVerse(v.elseVerse)
-    # End (Set exit jump)
     patch(exitJump)
 
   of vkLoop:
-    # Commit here
-    let startIdx = ctx.emit(opChoice, 0)
+    let startIdx = ctx.emit(opChoice)
     ctx.compileVerse(v.bodyVerse)
-    # Loop back on success
     discard ctx.emit(opCommit, startIdx)
-    # Patch exit
     patch(startIdx)
 
-  of vkCapture:
+  of vkSiphon:
     discard ctx.emit(opCapPushPos)
-    ctx.compileVerse(v.bodyVerse)
-    discard ctx.emit(opCapPopPos)
+    ctx.compileVerse(v.siphonBody)
+    ctx.emitSiphon(v.channelIdx)
+
+  of vkTransmute:
+    ctx.compileVerse(v.transmuteBody)
+    var inst = Instruction[G, A](
+      op: opTransmute, 
+      valTransmuteIdx: v.transmuteIdx.int,
+      transmuteChannel: v.siphonChannel
+    )
+    ctx.glyph.insts.add inst
+
+  of vkAbsorb:
+    ctx.compileVerse(v.absorbBody)
+    discard ctx.emit(opAbsorb, v.absorbIdx.int)
+
+  of vkScry:
+    ctx.compileVerse(v.scryBody)
+    discard ctx.emit(opScry, v.scryIdx.int)
 
   of vkErrorLabel:
     let idx = ctx.glyph.strPool.getOrAdd(ctx.codex[v.labelStrIdx])
-    ctx.glyph.insts.add Instruction(op: opPushErrLabel, valStrIdx: idx)
+    var inst = Instruction[G, A](op: opPushErrLabel)
+    inst.valStrIdx = idx
+    ctx.glyph.insts.add inst
+    
     ctx.compileVerse(v.labelledVerseIdx)
     discard ctx.emit(opPopErrLabel)
-  
+   
   of vkLookahead:
     let op = if v.invert: opReject else: opPeek
-    let jmp = ctx.emit(op, 0)
+    let jmp = ctx.emit(op)
     ctx.compileVerse(v.lookaheadVerse)
-    # Commit
-    discard ctx.emit(opCommit, 0)
-    # Lookahead must skip to after the block
+    discard ctx.emit(opCommit)
     patch(jmp)
 
   of vkCall:
     let idx = ctx.emit(opCall, 0)
     ctx.unresolvedCalls.add(UnresolvedCall(idx: idx, rIdx: v.ruleIdx))
 
-  of vkAction:
-    let idx = ctx.glyph.actionPool.getOrAdd(ctx.codex[v.actionIdx])
-    ctx.glyph.insts.add Instruction(op: opAction, valActionIdx: idx)
-
-  # Terminals
   of vkCheckMatch, vkCheckNoMatch:
     let isMatch = v.kind == vkCheckMatch
     
     case v.checkType
-    of ckChar: 
-      ctx.emit(if isMatch: opChar else: opExceptChar, v.valChar)
-    of ckAny:  
+    of ckAtom: 
+      ctx.emit(if isMatch: opAtom else: opExceptAtom, v.valAtom)
+    of ckAny:   
       discard ctx.emit(opAny)
-    of ckStr:
-      let idx = ctx.glyph.strPool.getOrAdd(ctx.codex[v.strPoolIdx])
-      ctx.glyph.insts.add Instruction(op: opStr, valStrIdx: idx)
+    of ckSeqAtom:
+      let idx = ctx.glyph.atomPool.getOrAdd(ctx.codex[v.atomPoolIdx])
+      var inst = Instruction[G, A](op: opSeqAtom)
+      inst.valPoolIdx = idx
+      ctx.glyph.insts.add inst
     of ckSet:
-      let
-        idx = ctx.glyph.setPool.getOrAdd(ctx.codex[v.setPoolIdx])
-        inst = case isMatch
-          of true: Instruction(op: opSet, valSetIdx: idx)
-          of false: Instruction(op: opExceptSet, valSetIdx: idx)
+      let idx = ctx.glyph.setPool.getOrAdd(ctx.codex[v.setPoolIdx])
+      var inst = Instruction[G, A](op: if isMatch: opSet else: opExceptSet)
+      inst.valSetIdx = idx
       ctx.glyph.insts.add inst
 
-
 # Entrypoint
-proc compile*[C: Ctx](entry: Rule[C]): Glyph[C] =
-  var ctx = CompileCtx[C](
+proc compile*[C, G, A, L](entry: Rule[C, G, A, L]): Glyph[C, G, A, L] =
+  var ctx = CompileCtx[C, G, A, L](
     codex: entry.builder.codex[],
+    glyph: Glyph[C, G, A, L](),
     ruleMap: initTable[RuleIdx, int](),
   )
 
-  # Acts as the entrypoint
+  # Pools are preserved 1:1 between codex and glyph
+  ctx.glyph.strPool = ctx.codex.strPool
+  ctx.glyph.atomPool = ctx.codex.atomPool
+  ctx.glyph.setPool = ctx.codex.setPool
+  ctx.glyph.transmutePool = ctx.codex.transmutePool
+  ctx.glyph.absorbPool = ctx.codex.absorbPool
+  ctx.glyph.scryPool = ctx.codex.scryPool
+
   ctx.ruleMap[entry.id] = 0
   ctx.compileVerse(ctx.codex[entry.id].entry)
   discard ctx.emit(opReturn)
 
-  # Compile all rules in the codex
   for i, def in ctx.codex.rulePool:
     let rIdx = RuleIdx(i)
     if rIdx == entry.id: continue
-    # Forward decl
     if def.entry.int == -1: continue
 
     ctx.ruleMap[rIdx] = ctx.glyph.insts.len
     ctx.compileVerse(def.entry)
     discard ctx.emit(opReturn)
 
-  # Resolve unresolved calls
   for pc in ctx.unresolvedCalls:
     if pc.rIdx notin ctx.ruleMap:
-      raise newException(ValueError, "Linker: Missing rule implementation for " & $pc.rIdx)
+      raise newException(ValueError, "Linker: Missing rule implementation")
     ctx.glyph.insts[pc.idx].valTarget = ctx.ruleMap[pc.rIdx]
 
   result = ctx.glyph

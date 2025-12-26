@@ -1,29 +1,29 @@
 import sigil
-import sigil/codex/ctypes
+import sigil/codex
+import std/strutils
 
 type
-  CodexRef[C: Ctx] = ref Codex[C]
+  CodexRef[C: Ctx, G: Ordinal, A: Atom, L: static bool] = ref Codex[C, G, A, L]
 
-  RuleBuilder*[C: Ctx] = object
+  RuleBuilder*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = object
     root*: VerseIdx     # Rule entrypoint
-    codex*: CodexRef[C] # Shared state (hence the ref)
+    codex*: CodexRef[C, G, A, L] # Shared state
 
   # Handle that exists for referring to another rule.
-  Rule*[C: Ctx] = object
-    builder*: RuleBuilder[C]
+  Rule*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = object
+    builder*: RuleBuilder[C, G, A, L]
     id*: RuleIdx
 
 # Helpers
-proc `new`[C: Ctx](T: typedesc[CodexRef[C]]): T = T()
+proc `new`[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[CodexRef[C, G, A, L]]
+): T = T()
 
-proc `init`[C: Ctx](
-  T: typedesc[RuleBuilder[C]],
+proc `init`[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[RuleBuilder[C, G, A, L]],
   root: VerseIdx,
-  codex: CodexRef[C]
+  codex: CodexRef[C, G, A, L]
 ): T = T(root: root, codex: codex)
-
-func add[C: Ctx](b: var RuleBuilder[C], v: Verse): VerseIdx =
-  result = b.codex.add(v)
 
 func getOrAdd[T](
   pool: var seq[T],
@@ -34,8 +34,15 @@ func getOrAdd[T](
     pool.add(val)
     result = pool.high
 
-# TODO: This will die on large rules, need to make it not recursive
-proc stitch[C: Ctx](dest, src: CodexRef[C], entry: VerseIdx): VerseIdx =
+func add[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  b: var RuleBuilder[C, G, A, L], v: Verse[G, A]
+): VerseIdx = b.codex.add(v)
+
+# For stitching together codexes (since each rule builder has its own codex)
+proc stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  dest, src: CodexRef[C, G, A, L], 
+  entry: VerseIdx
+): VerseIdx =
   if dest == src: return entry
 
   let origVerse = src[entry]
@@ -59,8 +66,27 @@ proc stitch[C: Ctx](dest, src: CodexRef[C], entry: VerseIdx): VerseIdx =
     verse.tryVerse = dest.stitch(src, origVerse.tryVerse)
     verse.elseVerse = dest.stitch(src, origVerse.elseVerse)
 
-  of vkLoop, vkCapture:
+  of vkLoop:
     verse.bodyVerse = dest.stitch(src, origVerse.bodyVerse)
+
+  of vkSiphon:
+    verse.siphonBody = dest.stitch(src, origVerse.siphonBody)
+
+  of vkTransmute:
+    verse.transmuteBody = dest.stitch(src, origVerse.transmuteBody)
+    verse.siphonChannel = origVerse.siphonChannel
+    let idx = dest.transmutePool.getOrAdd(src[origVerse.transmuteIdx])
+    verse.transmuteIdx = TransmuteIdx(idx)
+
+  of vkAbsorb:
+    verse.absorbBody = dest.stitch(src, origVerse.absorbBody)
+    let idx = dest.absorbPool.getOrAdd(src[origVerse.absorbIdx])
+    verse.absorbIdx = AbsorbIdx(idx)
+
+  of vkScry:
+    verse.scryBody = dest.stitch(src, origVerse.scryBody)
+    let idx = dest.scryPool.getOrAdd(src[origVerse.scryIdx])
+    verse.scryIdx = ScryIdx(idx)
 
   of vkErrorLabel:
     verse.labelledVerseIdx = dest.stitch(src, origVerse.labelledVerseIdx)
@@ -72,20 +98,17 @@ proc stitch[C: Ctx](dest, src: CodexRef[C], entry: VerseIdx): VerseIdx =
   
   of vkCall:
     let srcDef = src[origVerse.ruleIdx]
-
     var foundIdx = -1
     for i, r in dest.rulePool:
       if r.name == srcDef.name:
         foundIdx = i
         break
-
     if foundIdx == -1:
       foundIdx = dest.rulePool.len
       dest.rulePool.add RuleDef(
         name: srcDef.name, 
         entry: VerseIdx(-1)
       )
-
       if srcDef.entry.int != -1:
         let newEntry = dest.stitch(src, srcDef.entry)
         dest.rulePool[foundIdx].entry = newEntry
@@ -94,84 +117,89 @@ proc stitch[C: Ctx](dest, src: CodexRef[C], entry: VerseIdx): VerseIdx =
 
   of vkCheckMatch, vkCheckNoMatch:
     case origVerse.checkType
-    of ckStr:
-      let idx = dest.strPool.getOrAdd(src[origVerse.strPoolIdx])
-      verse.strPoolIdx = StrPoolIdx(idx)
+    of ckSeqAtom:
+      let idx = dest.atomPool.getOrAdd(src[origVerse.atomPoolIdx])
+      verse.atomPoolIdx = AtomPoolIdx(idx)
     of ckSet:
       let idx = dest.setPool.getOrAdd(src[origVerse.setPoolIdx])
       verse.setPoolIdx = SetPoolIdx(idx)
     else: discard
 
-  of vkAction:
-    let idx = dest.actionPool.getOrAdd(src[origVerse.actionIdx])
-    verse.actionIdx = ActionIdx(idx)
-
   dest.add(verse)
 
 # Primitives
-func match*[C: Ctx, M: char | set[char] | string](
-  T: typedesc[RuleBuilder[C]],
-  val: M
+func match*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[RuleBuilder[C, G, A, L]],
+  val: A | set[A]
 ): T =
   let
-    codex = CodexRef[C].new()
-    root = codex.add(Verse.checkMatch(codex[], val))
-
+    codex = CodexRef[C, G, A, L].new()
+    root = codex.add(Verse[G, A].checkMatch(codex[], val))
   T.init(root, codex)
 
-func any*[C: Ctx](T: typedesc[RuleBuilder[C]]): T =
-  let
-    codex = CodexRef[C].new()
-    root = codex.add(Verse.checkMatchAny())
-
-  T.init(root, codex)
-
-func noMatch*[C: Ctx, M: char | set[char]](
-  T: typedesc[RuleBuilder[C]],
-  val: M
+func match*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[RuleBuilder[C, G, A, L]],
+  vals: openArray[A]
 ): T =
   let
-    codex = CodexRef[C].new()
-    root = codex.add(Verse.checkNoMatch(codex[], val))
-
+    codex = CodexRef[C, G, A, L].new()
+    root = codex.add(Verse[G, A].checkMatch(codex[], @vals))
   T.init(root, codex)
 
+func any*[C: Ctx, G: Ordinal, A: Atom, L: static bool](T: typedesc[RuleBuilder[C, G, A, L]]): T =
+  let
+    codex = CodexRef[C, G, A, L].new()
+    root = codex.add(Verse[G, A].checkMatchAny())
+  T.init(root, codex)
+
+func noMatch*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[RuleBuilder[C, G, A, L]],
+  val: A | set[A]
+): T =
+  let
+    codex = CodexRef[C, G, A, L].new()
+    root = codex.add(Verse[G, A].checkNoMatch(codex[], val))
+  T.init(root, codex)
 
 # Rules
-
-
-func define*[C: Ctx](
-  T: typedesc[RuleBuilder[C]], 
+func define*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[RuleBuilder[C, G, A, L]], 
   name: string
-): Rule[C] =
+): Rule[C, G, A, L] =
   # Reserves the rule in the codex
   let
-    codex = CodexRef[C].new()
+    codex = CodexRef[C, G, A, L].new()
     def = RuleDef(name: name, entry: VerseIdx(-1))
   
   result.id = codex.add(def)
   result.builder = T.init(VerseIdx(-1), codex)
 
-func implement*[C: Ctx](r: Rule[C], body: RuleBuilder[C]) =
+func implement*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  r: Rule[C, G, A, L], body: RuleBuilder[C, G, A, L]
+) =
   # Replaces the body of the rule.
   let bodyRoot = r.builder.codex.stitch(body.codex, body.root)
   r.builder.codex.rulePool[r.id.int].entry = bodyRoot
 
-func define*[C: Ctx](
-  T: typedesc[RuleBuilder[C]], 
+func define*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[RuleBuilder[C, G, A, L]], 
   name: string, 
-  body: RuleBuilder[C]
-): Rule[C] =
-  result = define(T, name)
-  implement(result, body)
+  body: RuleBuilder[C, G, A, L]
+): Rule[C, G, A, L] =
+  result = T.define(name)
+  result.implement(body)
 
-func call*[C: Ctx](r: Rule[C]): RuleBuilder[C] =
+func call*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  r: Rule[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
   result = r.builder
   let def = result.codex[r.id]
-  result.root = result.add(Verse.call(result.codex[], def))
+  result.root = result.add(Verse[G, A].call(result.codex[], def))
 
-# Combinators go brr
-func `and`*[C: Ctx](a, b: RuleBuilder[C]): RuleBuilder[C] =
+# Combinators
+func `and`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  a, b: RuleBuilder[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
   result = a
   let bRoot = result.codex.stitch(b.codex, b.root)
   let aVerse = result.codex[a.root]
@@ -180,56 +208,112 @@ func `and`*[C: Ctx](a, b: RuleBuilder[C]): RuleBuilder[C] =
     discard result.codex.add(bRoot) 
     result.codex.verses[a.root.int].spineLen.inc
   else:
-    let start = result.codex.add(a.root) # Returns current index
-    discard result.codex.add(bRoot)      # Returns next index (contiguous)
+    let start = result.codex.add(a.root) 
+    discard result.codex.add(bRoot)      
 
-    result.root = result.add(Verse.seq(start, 2))
+    result.root = result.add(Verse[G, A].seq(start, 2))
 
-func `or`*[C: Ctx](a, b: RuleBuilder[C]): RuleBuilder[C] =
+func chain*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  ps: varargs[RuleBuilder[C, G, A, L]]
+): RuleBuilder[C, G, A, L] =
+  assert ps.len > 1, "`join` requires at least 2 arguments"
+  result = ps[0]
+  for p in ps[1..^1]:
+    result = result and p
+
+func `or`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  a, b: RuleBuilder[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
   result = a
   let bRoot = result.codex.stitch(b.codex, b.root)
-  result.root = result.add(Verse.choice(a.root, bRoot))
+  result.root = result.add(Verse[G, A].choice(a.root, bRoot))
 
-func many0*[C: Ctx](p: RuleBuilder[C]): RuleBuilder[C] =
+func fork*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  ps: varargs[RuleBuilder[C, G, A, L]]
+): RuleBuilder[C, G, A, L] =
+  assert ps.len > 1, "`fork` requires at least 2 arguments"
+  result = ps[0]
+  for p in ps[1..^1]:
+    result = result or p
+
+func many0*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
   result = p
-  result.root = result.add(Verse.loop(p.root))
+  result.root = result.add(Verse[G, A].loop(p.root))
 
-func many1*[C: Ctx](p: RuleBuilder[C]): RuleBuilder[C] =
-  result = p and many0(p)
+func many1*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L]
+): RuleBuilder[C, G, A, L] = p and many0(p)
 
-func optional*[C: Ctx](p: RuleBuilder[C]): RuleBuilder[C] =
+func optional*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
   result = p
-  let emptyRoot = result.add(Verse.seq(SpineIdx(result.codex.spine.len), 0))
-  result.root = result.add(Verse.choice(p.root, emptyRoot))
+  let emptyRoot = result.add(Verse[G, A].seq(SpineIdx(result.codex.spine.len), 0))
+  result.root = result.add(Verse[G, A].choice(p.root, emptyRoot))
 
-# Actions go brrr
-func action*[C: Ctx](p: RuleBuilder[C], act: ActionProc[C]): RuleBuilder[C] =
+# Capturing! Wow!
+func siphon*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L],
+  channel: G
+): RuleBuilder[C, G, A, L] =
   result = p
-  let actVerse = result.add(Verse.action(result.codex[], act))
-  
-  let start = result.codex.add(p.root)
-  discard result.codex.add(actVerse)
-  
-  result.root = result.add(Verse.seq(start, 2))
+  result.root = result.add(Verse[G, A].siphon(
+    result.codex[], p.root, channel
+  ))
 
-# Gotta capture shit
-func capture*[C: Ctx](p: RuleBuilder[C]): RuleBuilder[C] =
+# Callbacks! Woah!
+func transmute*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L], 
+  channel: G,
+  cb: TransmuteProc[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
   result = p
-  result.root = result.add(Verse.capture(p.root))
+  result.root = result.add(Verse[G, A].transmute(
+    result.codex[], p.root, channel, result.codex.add(cb)
+  ))
 
-# Error handling!
-func errorLabel*[C: Ctx](p: RuleBuilder[C], msg: string): RuleBuilder[C] =
+func absorb*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L], 
+  cb: AbsorbProc[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
   result = p
-  result.root = result.add(Verse.errorLabel(p.codex[], p.root, msg))
+  result.root = result.add(Verse[G, A].absorb(
+    result.codex[], p.root, result.codex.add(cb)
+  ))
 
-# Lookaheads!
-func peek*[C: Ctx](p: RuleBuilder[C]): RuleBuilder[C] =
+func scry*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L], 
+  cb: ScryProc[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
   result = p
-  result.root = result.add(Verse.lookahead(p.root, false))
+  result.root = result.add(Verse[G, A].scry(
+    result.codex[], p.root, result.codex.add(cb)
+  ))
 
-func reject*[C: Ctx](p: RuleBuilder[C]): RuleBuilder[C] =
+# Error handling
+func errorLabel*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L],
+  msg: string
+): RuleBuilder[C, G, A, L] =
   result = p
-  result.root = result.add(Verse.lookahead(p.root, true))
+  result.root = result.add(Verse[G, A].errorLabel(p.codex[], p.root, msg))
 
-# Fi.
-func finalise*[C: Ctx](r: RuleBuilder[C]): Codex[C] = r.codex[]
+# Lookaheads
+func peek*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
+  result = p
+  result.root = result.add(Verse[G, A].lookahead(p.root, false))
+
+func reject*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
+  result = p
+  result.root = result.add(Verse[G, A].lookahead(p.root, true))
+
+# Fi. The End.
+func finalise*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  r: RuleBuilder[C, G, A, L]
+): Codex[C, G, A, L] = r.codex[]

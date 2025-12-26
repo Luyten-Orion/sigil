@@ -1,18 +1,24 @@
+import sigil
+import sigil/codex
 import sigil/combinators
-import sigil/codex/ctypes
 
 type
   TestCtx = object
-  RB = RuleBuilder[TestCtx]
+  TestGroups = enum tgNone
+  # Define the specific RuleBuilder we are testing
+  # Context: TestCtx, Groups: TestGroups, Atom: char, Lines: false
+  RB = RuleBuilder[TestCtx, TestGroups, char, false]
 
 block BasicMatching:
+  # RB.match is now a static proc on the generic type
   let p = RB.match('a')
   let c = p.codex[]
   let entry = c[p.root]
    
   doAssert entry.kind == vkCheckMatch
-  doAssert entry.checkType == ckChar
-  doAssert entry.valChar == 'a'
+  # 'char' is an Atom, so it uses ckAtom
+  doAssert entry.checkType == ckAtom 
+  doAssert entry.valAtom == 'a'
 
 block SequenceAndStitching:
   let p1 = RB.match('a')
@@ -32,13 +38,14 @@ block SequenceAndStitching:
   let child2 = c[child2Idx]
    
   doAssert child1.kind == vkCheckMatch
-  doAssert child1.valChar == 'a'
+  doAssert child1.valAtom == 'a'
    
   doAssert child2.kind == vkCheckMatch
-  doAssert child2.valChar == 'b'
+  doAssert child2.valAtom == 'b'
 
 block RecursionAndDefinitions:
-  let ruleA = define(RB, "A")
+  # define is now called on the Typedesc
+  let ruleA = RB.define("A")
   ruleA.implement(RB.match('a'))
    
   let p = call(ruleA)
@@ -52,7 +59,7 @@ block RecursionAndDefinitions:
    
   let entryNode = c[rDef.entry]
   doAssert entryNode.kind == vkCheckMatch
-  doAssert entryNode.valChar == 'a'
+  doAssert entryNode.valAtom == 'a'
 
 block Lookaheads:
   let p = peek(RB.match('a'))
@@ -65,4 +72,14 @@ block Lookaheads:
   let innerIdx = root.lookaheadVerse
   let inner = c[innerIdx]
   doAssert inner.kind == vkCheckMatch
-  doAssert inner.valChar == 'a'
+  doAssert inner.valAtom == 'a'
+
+block StringMatching:
+  # Testing the openArray[char] matcher
+  let p = RB.match("hello")
+  let c = p.codex[]
+  let root = c[p.root]
+
+  doAssert root.kind == vkCheckMatch
+  doAssert root.checkType == ckSeqAtom
+  doAssert c[root.atomPoolIdx] == "hello"

@@ -1,58 +1,83 @@
-import sigil/codex/ctypes
+import std/[sequtils]
+import sigil
+import sigil/codex
+import sigil/sigir
 import sigil/sigvm
-import sigil/sigir/compiler
 import sigil/combinators
+import sigil/sigir/compiler
 
-type TestCtx = object
-  captured: seq[string]
+type 
+  TestCtx = object
+    # User data to verify side-effects
+    captured: seq[string]
 
-type RB = RuleBuilder[TestCtx]
+  TestGroups = enum tgNone, tgVal
 
-proc runTest(p: static Rule[TestCtx], input: string): VmResult =
+  # Generic Type Aliases
+  RB = RuleBuilder[TestCtx, TestGroups, char, false]
+  MyCtx = ParserCtx[TestCtx, TestGroups, char, false]
+  MyRule = Rule[TestCtx, TestGroups, char, false]
+
+# Helper to run VM with static compilation
+template runTest(
+  p: static MyRule, 
+  input: string
+): (VmResult, MyCtx) =
+  # 1. Compile at CT
   const glyph = compile(p)
-  var ctx = TestCtx()
-  result = run(glyph, input, ctx)
+  
+  # 2. Init Context
+  var ctx = MyCtx() 
+  
+  # 3. Convert input string -> seq[char] (The VM expects seq[A])
+  let inputSeq = @input
+  
+  # 4. Run
+  let res = run(glyph, inputSeq, ctx)
+  (res, ctx)
 
 block BasicExecution:
   const p = RB.define("Main", RB.match("hello"))
-  let res = runTest(p, "hello")
+  let (res, _) = runTest(p, "hello")
   doAssert res.success
   doAssert res.matchLen == 5
   
-  let resFail = runTest(p, "hell")
+  let (resFail, _) = runTest(p, "hell")
   doAssert not resFail.success
 
 block InvertedChar:
   const p = RB.define("NotA", RB.noMatch('a'))
 
-  let res = runTest(p, "b")
+  let (res, _) = runTest(p, "b")
   doAssert res.success
   doAssert res.matchLen == 1
 
-  let resFail = runTest(p, "a")
+  let (resFail, _) = runTest(p, "a")
   doAssert not resFail.success
-  doAssert "anything but 'a'" in resFail.expectedTerminals
+  # VM uses prettyAtom for chars ('a')
+  doAssert "'a'" in resFail.expectedTerminals
 
 block SetMatching:
   const p = RB.define("Digit", RB.match({'0'..'9'}))
 
-  let res = runTest(p, "7")
+  let (res, _) = runTest(p, "7")
   doAssert res.success
   doAssert res.matchLen == 1
 
-  let resFail = runTest(p, "a")
+  let (resFail, _) = runTest(p, "a")
   doAssert not resFail.success
+  # Set ranges are pretty printed
   doAssert "[0-9]" in resFail.expectedTerminals
 
 block InvertedSet:
   const p = RB.define("NotDigit", RB.noMatch({'0'..'9'}))
 
-  let res = runTest(p, "a")
+  let (res, _) = runTest(p, "a")
   doAssert res.success
 
-  let resFail = runTest(p, "5")
+  let (resFail, _) = runTest(p, "5")
   doAssert not resFail.success
-  doAssert "anything but '[0-9]'" in resFail.expectedTerminals
+  doAssert "Not [0-9]" in resFail.expectedTerminals
 
 block ChoiceBacktracking:
   const p = RB.define("Main", 
@@ -60,36 +85,36 @@ block ChoiceBacktracking:
     (RB.match('a') and RB.match('c'))
   )
   
-  let res = runTest(p, "ac")
+  let (res, _) = runTest(p, "ac")
   doAssert res.success
   doAssert res.matchLen == 2
 
 block Loops:
-  let p = RB.define("Main", many0(RB.match('a')))
-  let glyph = compile(p)
-  var ctx = TestCtx()
+  # 'const' required for static compilation helper
+  const p = RB.define("Main", many0(RB.match('a')))
   
-  let res = run(glyph, "aaab", ctx)
+  let (res, _) = runTest(p, "aaab")
   doAssert res.success
   doAssert res.matchLen == 3
 
 block RecursionRuntime:
+  # We construct the rule in a const block so it's available at CT
   const p = block:
     var r = RB.define("P")
     let body = (RB.match('a') and call(r) and RB.match('a')) or RB.match('b')
     r.implement(body)
     r
   
-  let res1 = runTest(p, "b")
+  let (res1, _) = runTest(p, "b")
   doAssert res1.success
   
-  let res2 = runTest(p, "aba")
+  let (res2, _) = runTest(p, "aba")
   doAssert res2.success
   
-  let res3 = runTest(p, "aabaa")
+  let (res3, _) = runTest(p, "aabaa")
   doAssert res3.success
   
-  let resFail = runTest(p, "aaba")
+  let (resFail, _) = runTest(p, "aaba")
   doAssert not resFail.success
 
 block PositiveLookahead:
@@ -97,11 +122,11 @@ block PositiveLookahead:
     peek(RB.match('a')) and RB.match('a')
   )
   
-  let res = runTest(p, "a")
+  let (res, _) = runTest(p, "a")
   doAssert res.success
   doAssert res.matchLen == 1
   
-  let resFail = runTest(p, "b")
+  let (resFail, _) = runTest(p, "b")
   doAssert not resFail.success
 
 block NegativeLookahead:
@@ -109,71 +134,79 @@ block NegativeLookahead:
     reject(RB.match('a')) and RB.any()
   )
   
-  let res = runTest(p, "b")
+  let (res, _) = runTest(p, "b")
   doAssert res.success
   
-  let resFail = runTest(p, "a")
+  let (resFail, _) = runTest(p, "a")
   doAssert not resFail.success
 
 block NestedLookaheadStackCleanliness:
   const inner = peek(RB.match('a'))
   const p = RB.define("Main", reject(inner))
   
-  let res = runTest(p, "b")
+  let (res, _) = runTest(p, "b")
   doAssert res.success
 
-block Captures:
-  const p = RB.define("Main", capture(RB.match('a')))
+# --- New Pipeline Tests ---
+
+block Siphoning:
+  # Old 'capture' is now 'siphon'
+  # We siphon into the 'tgVal' channel
+  const p = RB.define("Main", RB.match('a').siphon(tgVal))
   
-  let res = runTest(p, "a")
+  let (res, ctx) = runTest(p, "a")
   doAssert res.success
-  doAssert res.captures.len == 1
-  doAssert res.captures[0] == "a"
+  
+  # Check the Register (Channel)
+  doAssert ctx.channels[tgVal].len == 1
+  doAssert ctx.channels[tgVal][0] == 'a'
 
-block ActionExecution:
-  proc myAction(ctx: var TestCtx, caps: seq[string]): bool =
-    ctx.captured = caps
+block AbsorbExecution:
+  # Define the Absorb callback (Typed)
+  proc myAbsorb(ctx: var MyCtx): bool =
+    # Read from channel, store in user extension
+    let val = ctx.channels[tgVal]
+    ctx.ext.captured.add(cast[string](val)) # cast seq[char] -> string
     return true
 
-  const
-    p = RB.define("Main", 
-      capture(RB.match('a')) and action(RB.any(), myAction)
-    )
-    glyph = compile(p)
+  const p = RB.define("Main", 
+    # Match 'a', siphon it to tgVal, then absorb (trigger callback)
+    RB.match('a').siphon(tgVal).absorb(myAbsorb.AbsorbProc)
+  )
  
-  var ctx = TestCtx()
-  let res = run(glyph, "ab", ctx)
+  let (res, ctx) = runTest(p, "ab")
   
   doAssert res.success
-  doAssert ctx.captured.len == 1 
-  doAssert ctx.captured[0] == "a"
+  doAssert ctx.ext.captured.len == 1 
+  doAssert ctx.ext.captured[0] == "a"
 
-block ActionFailureBacktracking:
-  proc failAction(ctx: var TestCtx, caps: seq[string]): bool =
+block AbsorbFailureBacktracking:
+  proc failAbsorb(ctx: var MyCtx): bool =
     return false
 
   const p = RB.define("Main", 
-    (RB.match('a') and action(RB.any(), failAction)) or 
+    (RB.match('a').absorb(failAbsorb)) or 
     (RB.match('a') and RB.match('b'))
   )
 
-  let res = runTest(p, "ab")
+  let (res, _) = runTest(p, "ab")
   doAssert res.success
   doAssert res.matchLen == 2
 
 block ErrorReporting:
   const p = RB.define("Main", RB.match('a') and RB.match('b'))
-  let res = runTest(p, "ac")
+  let (res, _) = runTest(p, "ac")
   
   doAssert not res.success
   doAssert res.furthestFailureIdx == 1
   doAssert res.foundTerminal == "`c`" 
+  # Check failure messages (pretty printed)
   doAssert "'b'" in res.expectedTerminals
 
 block CustomErrorLabels:
   const p = RB.define("Main", errorLabel(RB.match('a'), "Expected Alpha"))
   
-  let res = runTest(p, "b")
+  let (res, _) = runTest(p, "b")
   doAssert not res.success
   
   doAssert res.foundTerminal == "`b`"
