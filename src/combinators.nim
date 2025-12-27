@@ -161,6 +161,12 @@ func noMatch*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
     root = codex.add(Verse[G, A].checkNoMatch(codex[], val))
   T.init(root, codex)
 
+func notAny*[C: Ctx, G: Ordinal, A: Atom, L: static bool](T: typedesc[RuleBuilder[C, G, A, L]]): T =
+  let
+    codex = CodexRef[C, G, A, L].new()
+    root = codex.add(Verse[G, A].checkNoMatchAny())
+  T.init(root, codex)
+
 # Rules
 func define*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   T: typedesc[RuleBuilder[C, G, A, L]], 

@@ -388,3 +388,7 @@ func checkNoMatch*(T: typedesc[Verse], c: var Codex, s: set[char]): T = T(
 func checkMatchAny*(T: typedesc[Verse]): T = T(
   kind: vkCheckMatch, checkType: ckAny
 )
+
+func checkNoMatchAny*(T: typedesc[Verse]): T = T(
+  kind: vkCheckNoMatch, checkType: ckAny
+)
