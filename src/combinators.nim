@@ -286,7 +286,7 @@ func absorb*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
 ): RuleBuilder[C, G, A, L] =
   result = p
   result.root = result.add(Verse[G, A].absorb(
-    result.codex[], p.root, result.codex.add(cb)
+    result.codex[], p.root, result.codex.addAbs(cb)
   ))
 
 func scry*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
@@ -295,7 +295,7 @@ func scry*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
 ): RuleBuilder[C, G, A, L] =
   result = p
   result.root = result.add(Verse[G, A].scry(
-    result.codex[], p.root, result.codex.add(cb)
+    result.codex[], p.root, result.codex.addScr(cb)
   ))
 
 # Error handling

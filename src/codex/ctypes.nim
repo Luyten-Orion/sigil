@@ -231,12 +231,12 @@ func add*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   v: TransmuteProc[C, G, A, L]
 ): TransmuteIdx =
   TransmuteIdx(c.transmutePool.getOrAdd(v))
-func add*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+func addAbs*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   c: var Codex[C, G, A, L],
   v: AbsorbProc[C, G, A, L]
 ): AbsorbIdx =
   AbsorbIdx(c.absorbPool.getOrAdd(v))
-func add*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+func addScr*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   c: var Codex[C, G, A, L],
   v: ScryProc[C, G, A, L]
 ): ScryIdx =
@@ -254,14 +254,14 @@ func add*[C, G, A, L](
   c: ref Codex[C, G, A, L],
   v: TransmuteProc[C, G, A, L]
 ): TransmuteIdx = c[].add(v)
-func add*[C, G, A, L](
+func addAbs*[C, G, A, L](
   c: ref Codex[C, G, A, L],
   v: AbsorbProc[C, G, A, L]
-): AbsorbIdx = c[].add(v)
-func add*[C, G, A, L](
+): AbsorbIdx = c[].addAbs(v)
+func addScr*[C, G, A, L](
   c: ref Codex[C, G, A, L],
   v: ScryProc[C, G, A, L]
-): ScryIdx = c[].add(v)
+): ScryIdx = c[].addScr(v)
 
 
 # Verse helpers
