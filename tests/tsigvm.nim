@@ -14,9 +14,9 @@ type
   TestGroups = enum tgNone, tgVal
 
   # Generic Type Aliases
-  RB = RuleBuilder[TestCtx, TestGroups, char, false]
-  MyCtx = ParserCtx[TestCtx, TestGroups, char, false]
-  MyRule = Rule[TestCtx, TestGroups, char, false]
+  RB = RuleBuilder[TestCtx, TestGroups, char, true]
+  MyCtx = ParserCtx[TestCtx, TestGroups, char, true]
+  MyRule = Rule[TestCtx, TestGroups, char, true]
 
 # Helper to run VM with static compilation
 template runTest(
@@ -33,7 +33,7 @@ template runTest(
   let inputSeq = @input
   
   # 4. Run
-  let res = run[TestCtx, TestGroups, char, false](glyph, inputSeq, ctx)
+  let res = run[TestCtx, TestGroups, char, true](glyph, inputSeq, ctx)
   (res, ctx)
 
 block BasicExecution:
@@ -148,26 +148,29 @@ block NestedLookaheadStackCleanliness:
   let (res, _) = runTest(p, "b")
   doAssert res.success
 
-# --- New Pipeline Tests ---
+# --- New Pipeline Tests (Updated for Accumulator Channels) ---
 
 block Siphoning:
-  # Old 'capture' is now 'siphon'
-  # We siphon into the 'tgVal' channel
+  # Siphons into 'tgVal' channel
   const p = RB.define("Main", RB.match('a').siphon(tgVal))
   
   let (res, ctx) = runTest(p, "a")
   doAssert res.success
   
-  # Check the Register (Channel)
-  doAssert ctx.channels[tgVal].len == 1
-  doAssert ctx.channels[tgVal][0] == 'a'
+  # Channel type is now seq[seq[char]]
+  doAssert ctx.channels[tgVal].len == 1    # One capture made
+  doAssert ctx.channels[tgVal][0] == @['a'] # Capture #0 is "a"
 
 block AbsorbExecution:
   # Define the Absorb callback (Typed)
   proc myAbsorb(ctx: var MyCtx): bool =
-    # Read from channel, store in user extension
-    let val = ctx.channels[tgVal]
-    ctx.ext.captured.add(cast[string](val)) # cast seq[char] -> string
+    # Read from channel (seq[seq[char]])
+    let captures = ctx.channels[tgVal]
+    
+    # Process all accumulated captures
+    for cap in captures:
+      ctx.ext.captured.add(cast[string](cap)) # cast seq[char] -> string
+    
     return true
 
   const p = RB.define("Main", 

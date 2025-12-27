@@ -76,7 +76,7 @@ func prettySeq[A](s: seq[A]): string =
     "[" & parts.join(" ") & "]"
 
 type
-  BacktrackFrame = object
+  BacktrackFrame[G: Ordinal, A: Atom, L: static bool] = object
     resumeIdx: int
     cursorPos: int
     capStackLen: int     
@@ -84,6 +84,11 @@ type
     labelStackLen: int
     isLookahead: bool
     invertLookahead: bool
+    savedChannels: array[G, seq[seq[A]]]
+    when L:
+      line: int
+      column: int
+      lastCr: bool
 
   CallFrame = object
     returnIdx: int
@@ -103,14 +108,45 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
 ): VmResult =
   var
     instructionIdx = 0
-    backtrackStack: seq[BacktrackFrame]
+    backtrackStack: seq[BacktrackFrame[G, A, L]]
     callStack: seq[CallFrame]
     captureStartStack: seq[int]
     labelStack: seq[string]
     furthestFailureIdx = -1
     failuresAtMax: HashSet[string]
+    lastCr: bool
   
   ctx.cursorPos = 0
+  when L:
+    ctx.line = 1
+    ctx.column = 1
+    lastCr = false
+
+  template trackAdvance(atom: A) =
+    when L:
+      when A is char:
+        if atom == '\r': # CR (\r)
+          inc ctx.line
+          ctx.column = 1
+          ctx.lastCr = true
+        elif atom == '\n': # LF (\n)
+          if ctx.lastCr:
+            # We just processed a CR, so this is the LF of a CRLF.
+            # We already incremented the line for the CR.
+            # Just turn off the flag.
+            ctx.lastCr = false
+          else:
+            # Standard Unix Newline
+            inc ctx.line
+            ctx.column = 1
+            ctx.lastCr = false
+        else:
+          # Normal char
+          inc ctx.column
+          ctx.lastCr = false
+      else:
+        inc ctx.column
+    else: discard
 
   template log(msg: string) =
     if debug: echo "[Inst: ", instructionIdx, " Cursor: ", ctx.cursorPos, "] ", msg
@@ -124,6 +160,35 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
     elif ctx.cursorPos == furthestFailureIdx:
       failuresAtMax.incl(finalMsg)
 
+  template pushBacktrack(target: int, isLook: bool, invert: bool) =
+    var frame = BacktrackFrame[G, A, L](
+      resumeIdx: target,
+      cursorPos: ctx.cursorPos,
+      capStackLen: captureStartStack.len,
+      callStackLen: callStack.len,
+      labelStackLen: labelStack.len,
+      isLookahead: isLook,
+      invertLookahead: invert,
+      savedChannels: ctx.channels
+    )
+    when L:
+      frame.line = ctx.line
+      frame.column = ctx.column
+      frame.lastCr = ctx.lastCr
+
+    backtrackStack.add(frame)
+
+  template restoreState(frame: BacktrackFrame[G, A, L]) =
+    ctx.cursorPos = frame.cursorPos
+    captureStartStack.setLen(frame.capStackLen)
+    callStack.setLen(frame.callStackLen)
+    labelStack.setLen(frame.labelStackLen)
+    ctx.channels = frame.savedChannels
+    when L:
+      ctx.line = frame.line
+      ctx.column = frame.column
+      ctx.lastCr = frame.lastCr
+
   template triggerFail() =
     block failureLoop:
       var handled = false
@@ -131,11 +196,7 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
         let frame = backtrackStack.pop()
         
         if not frame.isLookahead:
-           ctx.cursorPos = frame.cursorPos
-           captureStartStack.setLen(frame.capStackLen)
-           callStack.setLen(frame.callStackLen)
-           labelStack.setLen(frame.labelStackLen)
-           
+           restoreState(frame)
            instructionIdx = frame.resumeIdx
            handled = true
            log "Backtracking..."
@@ -143,6 +204,7 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
         else:
            if frame.invertLookahead:
              log "Neg Lookahead Success"
+             restoreState(frame)
              instructionIdx = frame.resumeIdx
              handled = true
              break failureLoop
@@ -172,16 +234,16 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
     case inst.op
     of opAtom:
       if ctx.cursorPos < input.len and input[ctx.cursorPos] == inst.valAtom:
+        trackAdvance(inst.valAtom)
         inc ctx.cursorPos; inc instructionIdx
-        when L: ctx.column.inc 
       else:
         recordFailure(prettyAtom(inst.valAtom))
         triggerFail()
         
     of opSet:
       if ctx.cursorPos < input.len and input[ctx.cursorPos] in glyph.setPool[inst.valSetIdx]:
+        trackAdvance(input[ctx.cursorPos])
         inc ctx.cursorPos; inc instructionIdx
-        when L: ctx.column.inc
       else:
         recordFailure(prettySet(glyph.setPool[inst.valSetIdx]))
         triggerFail()
@@ -195,8 +257,8 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
             match = false; break
         
         if match:
+          for item in s: trackAdvance(item)
           ctx.cursorPos += s.len; inc instructionIdx
-          when L: ctx.column += s.len
         else:
           recordFailure(prettySeq(s))
           triggerFail()
@@ -206,24 +268,24 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
         
     of opAny:
       if ctx.cursorPos < input.len:
+        trackAdvance(input[ctx.cursorPos])
         inc ctx.cursorPos; inc instructionIdx
-        when L: ctx.column.inc
       else:
         recordFailure("Any")
         triggerFail()
 
     of opExceptAtom:
       if ctx.cursorPos < input.len and input[ctx.cursorPos] != inst.valAtom:
+        trackAdvance(input[ctx.cursorPos])
         inc ctx.cursorPos; inc instructionIdx
-        when L: ctx.column.inc
       else:
         recordFailure("Not " & prettyAtom(inst.valAtom))
         triggerFail()
 
     of opExceptSet:
       if ctx.cursorPos < input.len and input[ctx.cursorPos] notin glyph.setPool[inst.valSetIdx]:
+        trackAdvance(input[ctx.cursorPos])
         inc ctx.cursorPos; inc instructionIdx
-        when L: ctx.column.inc
       else:
         recordFailure("Not " & prettySet(glyph.setPool[inst.valSetIdx]))
         triggerFail()
@@ -235,7 +297,7 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
     of opSiphonPop:
       if captureStartStack.len > 0:
         let start = captureStartStack.pop()
-        ctx.channels[inst.siphonChannel] = input[start..<ctx.cursorPos]
+        ctx.channels[inst.siphonChannel].add input[start..<ctx.cursorPos]
         inc instructionIdx
       else: 
         triggerFail()
@@ -269,13 +331,7 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
 
     of opChoice:
       log "Push Choice -> " & $inst.valTarget
-      backtrackStack.add BacktrackFrame(
-        resumeIdx: inst.valTarget,
-        cursorPos: ctx.cursorPos,
-        capStackLen: captureStartStack.len,
-        callStackLen: callStack.len,
-        labelStackLen: labelStack.len
-      )
+      pushBacktrack(inst.valTarget, false, false)
       inc instructionIdx
       
     of opCommit:
@@ -304,15 +360,7 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
     of opPeek, opReject:
       let isInverted = (inst.op != opPeek)
       log "Lookahead -> " & $inst.valTarget
-      backtrackStack.add BacktrackFrame(
-        resumeIdx: inst.valTarget,
-        cursorPos: ctx.cursorPos,
-        capStackLen: captureStartStack.len,
-        callStackLen: callStack.len,
-        labelStackLen: labelStack.len,
-        isLookahead: true,
-        invertLookahead: isInverted
-      )
+      pushBacktrack(inst.valTarget, true, isInverted)
       inc instructionIdx
 
     of opCall:

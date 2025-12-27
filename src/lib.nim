@@ -8,16 +8,17 @@ type
     ## `A`: Atom type
     ## `L`: Enable line tracking (only really applicable to `char` parsers tbh)
     ext*: C
-    channels*: array[G, seq[A]]
+    channels*: array[G, seq[seq[A]]]
     cursorPos*: int
     when L:
-      column*: int # Current column
-      line*: int   # Current line (only if enabled)
+      column*: int  # Current column
+      line*: int    # Current line
+      lastCr*: bool # If it ended with a carriage return (so `'\n' | '\r' ('\n')?`)
 
   # Transmute, transforms the capture stack in some way. Example: Squashing chars
   # into a single string.
   TransmuteProc*[C: Ctx, G: Ordinal, A: Atom, L: static bool] =
-    proc(ctx: var ParserCtx[C, G, A, L], stack: var seq[A]): bool {.nimcall.}
+    proc(ctx: var ParserCtx[C, G, A, L], stack: var seq[seq[A]]): bool {.nimcall.}
 
   # https://www.reddit.com/r/MemeRestoration/comments/f32opt/
   AbsorbAndScryProc[C: Ctx, G: Ordinal, A: Atom, L: static bool] =
