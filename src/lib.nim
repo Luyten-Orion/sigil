@@ -24,8 +24,6 @@ type
   AbsorbAndScryProc[C: Ctx, G: Ordinal, A: Atom, L: static bool] =
     proc(ctx: var ParserCtx[C, G, A, L]): bool {.nimcall.}
 
-  ScryProc*[C: Ctx, G: Ordinal, A: Atom, L: static bool] =
-    proc(ctx: var ParserCtx[C, G, A, L]): bool {.nimcall.}
+  ScryProc*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = AbsorbAndScryProc[C, G, A, L]
 
-  AbsorbProc*[C: Ctx, G: Ordinal, A: Atom, L: static bool] =
-    proc(ctx: var ParserCtx[C, G, A, L]): bool {.nimcall.}
+  AbsorbProc*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = AbsorbAndScryProc[C, G, A, L]

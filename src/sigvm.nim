@@ -1,5 +1,5 @@
 import std/[
-  typetraits, strutils, sets
+  strutils, sets
 ]
 import sigil
 import sigil/sigir/stypes
@@ -311,7 +311,7 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
         triggerFail()
 
     of opAbsorb:
-      let absProc = glyph.absorbPool[inst.valAbsorbIdx].distinctBase()
+      let absProc = glyph.absorbPool[inst.valAbsorbIdx]
       if absProc(ctx):
         inc instructionIdx
       else:
@@ -319,7 +319,7 @@ proc run*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
         triggerFail()
 
     of opScry:
-      let scryProc = glyph.scryPool[inst.valScryIdx].distinctBase()
+      let scryProc = glyph.scryPool[inst.valScryIdx]
       if scryProc(ctx):
         inc instructionIdx
       else:

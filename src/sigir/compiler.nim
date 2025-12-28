@@ -123,8 +123,14 @@ proc compileVerse[C, G, A, L](ctx: var CompileCtx[C, G, A, L], idx: VerseIdx) =
     case v.checkType
     of ckAtom: 
       ctx.emit(if isMatch: opAtom else: opExceptAtom, v.valAtom)
-    of ckAny:   
-      discard ctx.emit(opAny)
+    of ckAny:
+      if isMatch:
+        discard ctx.emit(opAny)
+      else:
+        let jmp = ctx.emit(opReject)
+        discard ctx.emit(opAny)
+        discard ctx.emit(opCommit)
+        patch(jmp)
     of ckSeqAtom:
       let idx = ctx.glyph.atomPool.getOrAdd(ctx.codex[v.atomPoolIdx])
       var inst = Instruction[G, A](op: opSeqAtom)
