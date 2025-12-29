@@ -145,7 +145,7 @@ proc compileVerse[C, G, A, L](ctx: var CompileCtx[C, G, A, L], idx: VerseIdx) =
 # Entrypoint
 proc compile*[C, G, A, L](entry: Rule[C, G, A, L]): Glyph[C, G, A, L] =
   var ctx = CompileCtx[C, G, A, L](
-    codex: entry.builder.codex[],
+    codex: entry.builder.finalise(),
     glyph: Glyph[C, G, A, L](),
     ruleMap: initTable[RuleIdx, int](),
   )

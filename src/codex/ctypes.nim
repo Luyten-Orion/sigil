@@ -186,31 +186,6 @@ func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   idx: ScryIdx
 ): ScryProc[C, G, A, L] = c.scryPool[idx.int]
 
-func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: ref Codex[C, G, A, L],
-  idx: VerseIdx
-): Verse[G, A] = c[][idx]
-func `[]`*(c: ref Codex, idx: SpineIdx): VerseIdx = c[][idx]
-func `[]`*(c: ref Codex, idx: StrPoolIdx): string = c[][idx]
-func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: ref Codex[C, G, A, L],
-  idx: AtomPoolIdx
-): seq[A] = c[][idx]
-func `[]`*(c: ref Codex, idx: SetPoolIdx): set[char] = c[][idx]
-func `[]`*(c: ref Codex, idx: RuleIdx): RuleDef = c[][idx]
-func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: ref Codex[C, G, A, L],
-  idx: TransmuteIdx
-): TransmuteProc[C, G, A, L] = c[][idx]
-func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: ref Codex[C, G, A, L],
-  idx: AbsorbIdx
-): AbsorbProc[C, G, A, L] = c[][idx]
-func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: ref Codex[C, G, A, L],
-  idx: ScryIdx
-): ScryProc[C, G, A, L] = c[][idx]
-
 func add*(c: var Codex, v: Verse): VerseIdx =
   VerseIdx(c.verses.getOrAdd(v))
 func add*(c: var Codex, v: VerseIdx): SpineIdx =
@@ -241,27 +216,6 @@ func addScr*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   v: ScryProc[C, G, A, L]
 ): ScryIdx =
   ScryIdx(c.scryPool.getOrAdd(v))
-
-func add*(c: ref Codex, v: Verse): VerseIdx = c[].add(v)
-func add*(c: ref Codex, v: VerseIdx): SpineIdx = c[].add(v)
-func add*(c: ref Codex, v: string): StrPoolIdx = c[].add(v)
-func add*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: ref Codex[C, G, A, L], v: A | seq[A]
-): AtomPoolIdx = c[].add(v)
-func add*(c: ref Codex, v: set[char]): SetPoolIdx = c[].add(v)
-func add*(c: ref Codex, v: RuleDef): RuleIdx = c[].add(v)
-func add*[C, G, A, L](
-  c: ref Codex[C, G, A, L],
-  v: TransmuteProc[C, G, A, L]
-): TransmuteIdx = c[].add(v)
-func addAbs*[C, G, A, L](
-  c: ref Codex[C, G, A, L],
-  v: AbsorbProc[C, G, A, L]
-): AbsorbIdx = c[].addAbs(v)
-func addScr*[C, G, A, L](
-  c: ref Codex[C, G, A, L],
-  v: ScryProc[C, G, A, L]
-): ScryIdx = c[].addScr(v)
 
 
 # Verse helpers

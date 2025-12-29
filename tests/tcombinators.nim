@@ -12,7 +12,7 @@ type
 block BasicMatching:
   # RB.match is now a static proc on the generic type
   let p = RB.match('a')
-  let c = p.codex[]
+  let c = p.codex
   let entry = c[p.root]
    
   doAssert entry.kind == vkCheckMatch
@@ -25,7 +25,7 @@ block SequenceAndStitching:
   let p2 = RB.match('b')
    
   let seqP = p1 and p2
-  let c = seqP.codex[]
+  let c = seqP.codex
   let root = c[seqP.root]
    
   doAssert root.kind == vkSeq
@@ -45,11 +45,10 @@ block SequenceAndStitching:
 
 block RecursionAndDefinitions:
   # define is now called on the Typedesc
-  let ruleA = RB.define("A")
-  ruleA.implement(RB.match('a'))
+  let ruleA = RB.define("A", (RB.match('a')))
    
   let p = call(ruleA)
-  let c = p.codex[]
+  let c = p.codex
    
   let callNode = c[p.root]
   doAssert callNode.kind == vkCall
@@ -63,7 +62,7 @@ block RecursionAndDefinitions:
 
 block Lookaheads:
   let p = peek(RB.match('a'))
-  let c = p.codex[]
+  let c = p.codex
   let root = c[p.root]
    
   doAssert root.kind == vkLookahead
@@ -77,7 +76,7 @@ block Lookaheads:
 block StringMatching:
   # Testing the openArray[char] matcher
   let p = RB.match("hello")
-  let c = p.codex[]
+  let c = p.codex
   let root = c[p.root]
 
   doAssert root.kind == vkCheckMatch
