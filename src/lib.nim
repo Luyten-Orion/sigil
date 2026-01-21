@@ -1,6 +1,6 @@
 type
   Atom* = char | byte
-  Ctx* = not (ref | void)
+  Ctx* = not (ptr | ref | void  | pointer)
 
   ParserCtx*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = object
     ## `C`: User-defined context object for their parser
