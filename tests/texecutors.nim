@@ -31,6 +31,19 @@ template runTest(
   let success = exe.dispatch(env, codex[p.id].entry)
   (success, env)
 
+template runCompTest(
+  p: MyRule, 
+  inputStr: string
+): (bool, MyEnv) =
+  const codex = p.builder.finalise()
+  var env {.compileTime.} = MyEnv(
+    input: @inputStr,
+    ctx: MyCtx()
+  )
+  let exe {.compileTime.} = newExecutor(codex)
+  let success {.compileTime.} = exe.dispatch(env, codex[p.id].entry)
+  (success, env)
+
 # Tests
 block BasicExecution:
   let p = RB.define("Main", RB.match("hello"))
@@ -144,3 +157,13 @@ block CustomErrorLabels:
   doAssert "Expected Alpha" in env.expectedLabels
   # Check that the label overrides the default terminal message
   doAssert "a" notin env.expectedLabels 
+
+# Just double check this works at compile-time
+block CompTimeEval:
+  const p = RB.define("Main", RB.match("hello"))
+  const (success, env) = runCompTest(p, "hello")
+  doAssert success
+  doAssert env.ctx.cursorPos == 5
+  
+  const (failSuccess, _) = runCompTest(p, "hell")
+  doAssert not failSuccess
