@@ -10,9 +10,7 @@ type
     visitVLoopCb*:        proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
     visitVCallCb*:        proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
     visitVSiphonCb*:      proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVTransmuteCb*:   proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVAbsorbCb*:      proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVScryCb*:        proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVActCb*:      proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
     visitVErrorLabelCb*:  proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
     visitVLookaheadCb*:   proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
     visitVCheckMatchCb*:  proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
@@ -35,14 +33,8 @@ template visitVCall*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res], e: 
 template visitVSiphon*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res =
   v.visitVSiphonCb(v, e, vIdx, node)
 
-template visitVTransmute*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res =
-  v.visitVTransmuteCb(v, e, vIdx, node)
-
-template visitVAbsorb*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res =
-  v.visitVAbsorbCb(v, e, vIdx, node)
-
-template visitVScry*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res =
-  v.visitVScryCb(v, e, vIdx, node)
+template visitVAct*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res =
+  v.visitVActCb(v, e, vIdx, node)
 
 template visitVErrorLabel*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res =
   v.visitVErrorLabelCb(v, e, vIdx, node)
@@ -69,9 +61,7 @@ proc dispatch*[C, G, A, L, Env, Res](
   of vkLoop:       v.visitVLoop(e, vIdx, node)
   of vkCall:       v.visitVCall(e, vIdx, node)
   of vkSiphon:     v.visitVSiphon(e, vIdx, node)
-  of vkTransmute:  v.visitVTransmute(e, vIdx, node)
-  of vkAbsorb:     v.visitVAbsorb(e, vIdx, node)
-  of vkScry:       v.visitVScry(e, vIdx, node)
+  of vkAct:     v.visitVAct(e, vIdx, node)
   of vkErrorLabel: v.visitVErrorLabel(e, vIdx, node)
   of vkLookahead:  v.visitVLookahead(e, vIdx, node)
   of vkCheckMatch: v.visitVCheckMatch(e, vIdx, node)

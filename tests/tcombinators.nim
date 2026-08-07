@@ -1,4 +1,3 @@
-import sigil
 import sigil/codex
 import sigil/combinators
 

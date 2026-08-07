@@ -1,6 +1,5 @@
 import std/importutils
 import sigil/codex/ctypes {.all.}
-import sigil/lib
 
 type 
   TestCtx = object

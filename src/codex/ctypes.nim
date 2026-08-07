@@ -11,9 +11,7 @@ type
     atomPool*: seq[seq[A]]
     setPool*: seq[set[A]]
     rulePool*: seq[RuleDef]
-    transmutePool*: seq[TransmuteProc[C, G, A, L]]
-    absorbPool*: seq[AbsorbProc[C, G, A, L]]
-    scryPool*: seq[ScryProc[C, G, A, L]]
+    actPool*: seq[ActProc[C, G, A, L]]
 
   VerseKind* = enum
     vkSeq                        # A block of steps
@@ -21,11 +19,7 @@ type
     vkLoop                       # A repetition
     vkCall                       # A subroutine call
     vkSiphon                     # Siphon matched atoms into a channel
-    vkTransmute                  # Transmute matched atoms in a channel
-    vkAbsorb                     # Absorb matched atoms in a channel after
-                                 # performing an action
-    vkScry                       # Scry matched atoms in a channel and perform
-                                 # an action
+    vkAct                     # Act on matched atoms in a channel after
     vkErrorLabel                 # An error label
     vkLookahead                  # Executes verse but then rewinds cursor
     vkCheckMatch, vkCheckNoMatch # A terminal match
@@ -50,19 +44,10 @@ type
     of vkSiphon:
       siphonBody*: VerseIdx
       channelIdx*: G
-    
-    of vkTransmute:
-      transmuteBody*: VerseIdx
-      transmuteIdx*: TransmuteIdx
-      siphonChannel*: G
 
-    of vkAbsorb:
-      absorbBody*: VerseIdx
-      absorbIdx*: AbsorbIdx
-
-    of vkScry:
-      scryBody*: VerseIdx
-      scryIdx*: ScryIdx
+    of vkAct:
+      actBody*: VerseIdx
+      actIdx*: ActIdx
     
     of vkErrorLabel:
       labelledVerseIdx*: VerseIdx
@@ -88,9 +73,7 @@ type
   StrPoolIdx* = distinct int
   AtomPoolIdx* = distinct int
   SetPoolIdx* = distinct int
-  TransmuteIdx* = distinct int
-  AbsorbIdx* = distinct int
-  ScryIdx* = distinct int
+  ActIdx* = distinct int
   RuleIdx* = distinct int
 
 # Neat utility
@@ -110,9 +93,7 @@ func `==`*(a, b: StrPoolIdx): bool {.borrow.}
 func `==`*(a, b: AtomPoolIdx): bool {.borrow.}
 func `==`*(a, b: SetPoolIdx): bool {.borrow.}
 func `==`*(a, b: RuleIdx): bool {.borrow.}
-func `==`*(a, b: TransmuteIdx): bool {.borrow.}
-func `==`*(a, b: AbsorbIdx): bool {.borrow.}
-func `==`*(a, b: ScryIdx): bool {.borrow.}
+func `==`*(a, b: ActIdx): bool {.borrow.}
 func `==`*(a, b: Verse): bool =
   if a.kind != b.kind: return false
   case a.kind
@@ -126,14 +107,8 @@ func `==`*(a, b: Verse): bool =
     a.ruleIdx == b.ruleIdx
   of vkSiphon:
     a.siphonBody == b.siphonBody and a.channelIdx == b.channelIdx
-  of vkTransmute:
-    a.transmuteBody == b.transmuteBody and
-    a.transmuteIdx == b.transmuteIdx and
-    a.siphonChannel == b.siphonChannel
-  of vkAbsorb:
-    a.absorbBody == b.absorbBody and a.absorbIdx == b.absorbIdx
-  of vkScry:
-    a.scryBody == b.scryBody and a.scryIdx == b.scryIdx
+  of vkAct:
+    a.actBody == b.actBody and a.actIdx == b.actIdx
   of vkErrorLabel:
     a.labelledVerseIdx == b.labelledVerseIdx and a.labelStrIdx == b.labelStrIdx
   of vkLookahead:
@@ -152,14 +127,14 @@ func `==`*(a, b: Verse): bool =
         true
 
 func `$`*(a: VerseIdx): string = "v@" & $int(a)
-func `$`*(a: SpineIdx): string = "sp@" & $int(a)
+func `$`*(a: SpineIdx): string = "s@" & $int(a)
 func `$`*(a: StrPoolIdx): string = "pstr@" & $int(a)
 func `$`*(a: AtomPoolIdx): string = "patom@" & $int(a)
 func `$`*(a: SetPoolIdx): string = "pset@" & $int(a)
-func `$`*(a: TransmuteIdx): string = "t@" & $int(a)
-func `$`*(a: AbsorbIdx): string = "a@" & $int(a)
-func `$`*(a: ScryIdx): string = "sc@" & $int(a)
+func `$`*(a: ActIdx): string = "a@" & $int(a)
 func `$`*(a: RuleIdx): string = "r@" & $int(a)
+
+func succ*(x: SpineIdx, y = 1): SpineIdx = SpineIdx(succ(x.int, y))
 
 func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   c: Codex[C, G, A, L],
@@ -175,16 +150,8 @@ func `[]`*(c: Codex, idx: SetPoolIdx): set[char] = c.setPool[idx.int]
 func `[]`*(c: Codex, idx: RuleIdx): RuleDef = c.rulePool[idx.int]
 func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   c: Codex[C, G, A, L],
-  idx: TransmuteIdx
-): TransmuteProc[C, G, A, L] = c.transmutePool[idx.int]
-func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: Codex[C, G, A, L],
-  idx: AbsorbIdx
-): AbsorbProc[C, G, A, L] = c.absorbPool[idx.int]
-func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: Codex[C, G, A, L],
-  idx: ScryIdx
-): ScryProc[C, G, A, L] = c.scryPool[idx.int]
+  idx: ActIdx
+): ActProc[C, G, A, L] = c.actPool[idx.int]
 
 func add*(c: var Codex, v: Verse): VerseIdx =
   VerseIdx(c.verses.getOrAdd(v))
@@ -201,21 +168,11 @@ func add*(c: var Codex, v: set[char]): SetPoolIdx =
   SetPoolIdx(c.setPool.getOrAdd(v))
 func add*(c: var Codex, v: RuleDef): RuleIdx =
   RuleIdx(c.rulePool.getOrAdd(v))
-func add*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+func addAct*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   c: var Codex[C, G, A, L],
-  v: TransmuteProc[C, G, A, L]
-): TransmuteIdx =
-  TransmuteIdx(c.transmutePool.getOrAdd(v))
-func addAbs*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: var Codex[C, G, A, L],
-  v: AbsorbProc[C, G, A, L]
-): AbsorbIdx =
-  AbsorbIdx(c.absorbPool.getOrAdd(v))
-func addScr*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  c: var Codex[C, G, A, L],
-  v: ScryProc[C, G, A, L]
-): ScryIdx =
-  ScryIdx(c.scryPool.getOrAdd(v))
+  v: ActProc[C, G, A, L]
+): ActIdx =
+  ActIdx(c.actPool.getOrAdd(v))
 
 
 # Verse helpers
@@ -253,39 +210,15 @@ func siphon*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   kind: vkSiphon, siphonBody: siphonBody, channelIdx: channelIdx
 )
 
-func transmute*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+func act*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   T: typedesc[Verse[G, A]],
   c: var Codex[C, G, A, L],
-  transmuteBody: VerseIdx,
-  siphonChannel: G,
-  transmuteIdx: TransmuteIdx
+  actBody: VerseIdx,
+  actIdx: ActIdx
 ): T = T(
-  kind: vkTransmute,
-  transmuteBody: transmuteBody,
-  transmuteIdx: transmuteIdx,
-  siphonChannel: siphonChannel
-)
-
-func absorb*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  T: typedesc[Verse[G, A]],
-  c: var Codex[C, G, A, L],
-  absorbBody: VerseIdx,
-  absorbIdx: AbsorbIdx
-): T = T(
-  kind: vkAbsorb,
-  absorbBody: absorbBody,
-  absorbIdx: absorbIdx
-)
-
-func scry*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  T: typedesc[Verse[G, A]],
-  c: var Codex[C, G, A, L],
-  scryBody: VerseIdx,
-  scryIdx: ScryIdx
-): T = T(
-  kind: vkScry,
-  scryBody: scryBody,
-  scryIdx: scryIdx
+  kind: vkAct,
+  actBody: actBody,
+  actIdx: actIdx
 )
 
 func errorLabel*(T: typedesc[Verse], c: var Codex, body: VerseIdx, label: string): T = T(

@@ -71,21 +71,10 @@ proc stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   of vkSiphon:
     verse.siphonBody = dest.stitch(src, origVerse.siphonBody)
 
-  of vkTransmute:
-    verse.transmuteBody = dest.stitch(src, origVerse.transmuteBody)
-    verse.siphonChannel = origVerse.siphonChannel
-    let idx = dest.transmutePool.getOrAdd(src[origVerse.transmuteIdx])
-    verse.transmuteIdx = TransmuteIdx(idx)
-
-  of vkAbsorb:
-    verse.absorbBody = dest.stitch(src, origVerse.absorbBody)
-    let idx = dest.absorbPool.getOrAdd(src[origVerse.absorbIdx])
-    verse.absorbIdx = AbsorbIdx(idx)
-
-  of vkScry:
-    verse.scryBody = dest.stitch(src, origVerse.scryBody)
-    let idx = dest.scryPool.getOrAdd(src[origVerse.scryIdx])
-    verse.scryIdx = ScryIdx(idx)
+  of vkAct:
+    verse.actBody = dest.stitch(src, origVerse.actBody)
+    let idx = dest.actPool.getOrAdd(src[origVerse.actIdx])
+    verse.actIdx = ActIdx(idx)
 
   of vkErrorLabel:
     verse.labelledVerseIdx = dest.stitch(src, origVerse.labelledVerseIdx)
@@ -269,32 +258,13 @@ func siphon*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   ))
 
 # Callbacks! Woah!
-func transmute*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+func act*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   p: RuleBuilder[C, G, A, L], 
-  channel: G,
-  cb: TransmuteProc[C, G, A, L]
+  cb: ActProc[C, G, A, L]
 ): RuleBuilder[C, G, A, L] =
   result = p
-  result.root = result.add(Verse[G, A].transmute(
-    result.codex, result.root, channel, result.codex.add(cb)
-  ))
-
-func absorb*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  p: RuleBuilder[C, G, A, L], 
-  cb: AbsorbProc[C, G, A, L]
-): RuleBuilder[C, G, A, L] =
-  result = p
-  result.root = result.add(Verse[G, A].absorb(
-    result.codex, result.root, result.codex.addAbs(cb)
-  ))
-
-func scry*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
-  p: RuleBuilder[C, G, A, L], 
-  cb: ScryProc[C, G, A, L]
-): RuleBuilder[C, G, A, L] =
-  result = p
-  result.root = result.add(Verse[G, A].scry(
-    result.codex, result.root, result.codex.addScr(cb)
+  result.root = result.add(Verse[G, A].act(
+    result.codex, result.root, result.codex.addAct(cb)
   ))
 
 # Error handling

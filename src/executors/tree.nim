@@ -126,17 +126,9 @@ proc execSiphon[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], 
     return true
   return false
 
-proc execTransmute[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
-  if not v.dispatch(e, node.transmuteBody): return false
-  return v.codex[node.transmuteIdx](e.ctx, e.ctx.channels[node.siphonChannel])
-
-proc execAbsorb[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
-  if not v.dispatch(e, node.absorbBody): return false
-  return v.codex[node.absorbIdx](e.ctx)
-
-proc execScry[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
-  if not v.dispatch(e, node.scryBody): return false
-  return v.codex[node.scryIdx](e.ctx)
+proc execAct[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
+  if not v.dispatch(e, node.actBody): return false
+  return v.codex[node.actIdx](e.ctx)
 
 proc execLookahead[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
   let saved = e.ctx
@@ -230,9 +222,7 @@ proc newExecutor*[C, G, A, L](c: Codex[C, G, A, L]): VerseExecutor[C, G, A, L] =
     visitVLoopCb: execLoop,
     visitVCallCb: execCall,
     visitVSiphonCb: execSiphon,
-    visitVTransmuteCb: execTransmute,
-    visitVAbsorbCb: execAbsorb,
-    visitVScryCb: execScry,
+    visitVActCb: execAct,
     visitVLookaheadCb: execLookahead,
     visitVCheckMatchCb: execCheckMatch,
     visitVCheckNoMatchCb: execCheckNoMatch,

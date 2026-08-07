@@ -1,4 +1,5 @@
-import std/[sequtils, sets]
+import std/sets
+
 import sigil
 import sigil/codex
 import sigil/codex/ctypes
@@ -119,23 +120,23 @@ block Siphoning:
   doAssert env.ctx.channels[tgVal].len == 1
   doAssert env.ctx.channels[tgVal][0] == @['a']
 
-block AbsorbExecution:
-  proc myAbsorb(ctx: var MyCtx): bool =
+block ActExecution:
+  proc myAct(ctx: var MyCtx): bool =
     for cap in ctx.channels[tgVal]:
       ctx.ext.captured.add(cast[string](cap))
     return true
 
   let p = RB.define("Main", 
-    RB.match('a').siphon(tgVal).absorb(myAbsorb.AbsorbProc)
+    RB.match('a').siphon(tgVal).act(myAct.ActProc)
   )
   let (success, env) = runTest(p, "ab")
   doAssert success
   doAssert env.ctx.ext.captured[0] == "a"
 
-block AbsorbFailureBacktracking:
-  proc failAbsorb(ctx: var MyCtx): bool = false
+block ActFailureBacktracking:
+  proc failAct(ctx: var MyCtx): bool = false
   let p = RB.define("Main", 
-    (RB.match('a').absorb(failAbsorb.AbsorbProc)) or 
+    (RB.match('a').act(failAct.ActProc)) or 
     (RB.match('a') and RB.match('b'))
   )
   let (success, env) = runTest(p, "ab")
