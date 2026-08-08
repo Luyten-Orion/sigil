@@ -36,6 +36,35 @@ func add[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   b: var RuleBuilder[C, G, A, L], v: Verse[G, A]
 ): VerseIdx = b.codex.add(v)
 
+func stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  dest: var Codex[C, G, A, L],
+  src: Codex[C, G, A, L], 
+  entry: VerseIdx
+): VerseIdx
+
+func stitchAllRules[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+    dest: var Codex[C, G, A, L],
+    src: Codex[C, G, A, L]
+) =
+  # Copy all rule definitions from src to dest
+  for def in src.rulePool:
+    var found = false
+    for d in dest.rulePool:
+      if d.name == def.name:
+        found = true
+        break
+    if not found:
+      dest.rulePool.add(RuleDef(name: def.name, entry: VerseIdx(-1)))
+
+  # Stitch the rule bodies next
+  for def in src.rulePool:
+    if def.entry.int != -1:
+      let newEntry = dest.stitch(src, def.entry)
+      for i, d in dest.rulePool.mpairs:
+        if d.name == def.name:
+          d.entry = newEntry
+          break
+
 # For stitching together codexes (since each rule builder has its own codex)
 func stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   dest: var Codex[C, G, A, L],
@@ -43,6 +72,8 @@ func stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   entry: VerseIdx
 ): VerseIdx =
   if dest == src: return entry
+
+  dest.stitchAllRules(src)
 
   let origVerse = src[entry]
   var verse = origVerse
@@ -92,14 +123,10 @@ func stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
         foundIdx = i
         break
     if foundIdx == -1:
+      # Should never happen ideally
       foundIdx = dest.rulePool.len
-      dest.rulePool.add RuleDef(
-        name: srcDef.name, 
-        entry: VerseIdx(-1)
-      )
-      if srcDef.entry.int != -1:
-        let newEntry = dest.stitch(src, srcDef.entry)
-        dest.rulePool[foundIdx].entry = newEntry
+      dest.rulePool.add(RuleDef(name: srcDef.name, entry: VerseIdx(-1)))
+    verse.ruleIdx = RuleIdx(foundIdx)
       
     verse.ruleIdx = RuleIdx(foundIdx)
 
@@ -112,6 +139,9 @@ func stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
       let idx = dest.setPool.getOrAdd(src[origVerse.setPoolIdx])
       verse.setPoolIdx = SetPoolIdx(idx)
     else: discard
+  
+  of vkCommit:
+    verse.commitBody = dest.stitch(src, origVerse.commitBody)
 
   dest.add(verse)
 
@@ -287,6 +317,12 @@ func reject*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
 ): RuleBuilder[C, G, A, L] =
   result = p
   result.root = result.add(Verse[G, A].lookahead(result.root, true))
+
+func commit*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  p: RuleBuilder[C, G, A, L]
+): RuleBuilder[C, G, A, L] =
+  result = p
+  result.root = result.add(Verse[G, A].commit(result.codex, result.root))
 
 # Fi. The End.
 func finalise*[C: Ctx, G: Ordinal, A: Atom, L: static bool](

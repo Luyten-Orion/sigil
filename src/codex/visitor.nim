@@ -5,16 +5,17 @@ type
   VerseVisitor*[C: Ctx, G: Ordinal, A: Atom, L: static bool, Env, Res] = object
     codex*: Codex[C, G, A, L]
     # Callbacks go brrr
-    visitVSeqCb*:         proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVChoiceCb*:      proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVLoopCb*:        proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVCallCb*:        proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVSiphonCb*:      proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVActCb*:      proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVErrorLabelCb*:  proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVLookaheadCb*:   proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
-    visitVCheckMatchCb*:  proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVSeqCb*:          proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVChoiceCb*:       proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVLoopCb*:         proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVCallCb*:         proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVSiphonCb*:       proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVActCb*:          proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVErrorLabelCb*:   proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVLookaheadCb*:    proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVCheckMatchCb*:   proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
     visitVCheckNoMatchCb*: proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
+    visitVCommitCb*:       proc(v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res {.nimcall.}
 
 # Helpers
 # TODO: Add null checks?
@@ -48,6 +49,9 @@ template visitVCheckMatch*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res
 template visitVCheckNoMatch*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res =
   v.visitVCheckNoMatchCb(v, e, vIdx, node)
 
+template visitVCommit*[C, G, A, L, Env, Res](v: VerseVisitor[C,G,A,L,Env,Res], e: var Env, vIdx: VerseIdx, node: Verse[G,A]): Res =
+  v.visitVCommitCb(v, e, vIdx, node)
+
 # Dispatcher
 proc dispatch*[C, G, A, L, Env, Res](
   v: VerseVisitor[C, G, A, L, Env, Res], 
@@ -66,3 +70,4 @@ proc dispatch*[C, G, A, L, Env, Res](
   of vkLookahead:  v.visitVLookahead(e, vIdx, node)
   of vkCheckMatch: v.visitVCheckMatch(e, vIdx, node)
   of vkCheckNoMatch: v.visitVCheckNoMatch(e, vIdx, node)
+  of vkCommit:     v.visitVCommit(e, vIdx, node)

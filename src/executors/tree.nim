@@ -4,12 +4,19 @@ import sigil/codex/ctypes
 import sigil/codex/visitor
 
 type
+  FailureRecord* = object
+    pos*: int
+    stack*: seq[string]
+    expected*: seq[string]
+
   ExecEnv*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = object
     input*: seq[A]
     ctx*: ParserCtx[C, G, A, L]
     labelStack*: seq[string]
     furthestFailureIdx*: int
     expectedLabels*: seq[string]
+    deepestFailure*: FailureRecord
+    commitDepth*: int
 
   VerseExecutor*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = 
     VerseVisitor[C, G, A, L, ExecEnv[C, G, A, L], bool]
@@ -65,12 +72,23 @@ func prettySeq[A](s: seq[A]): string =
 
 # --- Internal Helper for Error Tracking ---
 
-proc recordFailure[C, G, A, L](e: var ExecEnv[C, G, A, L], fallback: string) =
+proc recordFailure[C, G, A, L](e: var ExecEnv[C,G,A,L], fallback: string) =
   let label = if e.labelStack.len > 0: e.labelStack[^1] else: fallback
-  if e.ctx.cursorPos > e.furthestFailureIdx:
-    e.furthestFailureIdx = e.ctx.cursorPos
+  let pos = e.ctx.cursorPos
+  if pos > e.deepestFailure.pos:
+    e.deepestFailure = FailureRecord(
+      pos: pos,
+      stack: e.labelStack,
+      expected: @[label]
+    )
+  elif pos == e.deepestFailure.pos:
+    if label notin e.deepestFailure.expected:
+      e.deepestFailure.expected.add(label)
+  # Keep the old fields for backward compatibility
+  if pos > e.furthestFailureIdx:
+    e.furthestFailureIdx = pos
     e.expectedLabels = @[label]
-  elif e.ctx.cursorPos == e.furthestFailureIdx:
+  elif pos == e.furthestFailureIdx:
     if label notin e.expectedLabels:
       e.expectedLabels.add(label)
 
@@ -103,17 +121,25 @@ proc execSeq[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vId
   return true
 
 proc execChoice[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
-  let saved = e.ctx
-  if v.dispatch(e, node.tryVerse): return true
-  e.ctx = saved 
+  let
+    savedCtx = e.ctx
+    savedFailure = e.deepestFailure
+    savedCommitDepth = e.commitDepth
+  if v.dispatch(e, node.tryVerse):
+    return true
+  if e.commitDepth > savedCommitDepth: return false
+  e.ctx = savedCtx
+  e.deepestFailure = savedFailure
   return v.dispatch(e, node.elseVerse)
 
 proc execLoop[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
   while true:
-    let saved = e.ctx
+    let
+      saved = e.ctx
     if not v.dispatch(e, node.bodyVerse):
       e.ctx = saved
       break
+    if e.ctx.cursorPos == saved.cursorPos: break
   return true
 
 proc execCall[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
@@ -133,9 +159,12 @@ proc execAct[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vId
   return false
 
 proc execLookahead[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
-  let saved = e.ctx
-  let matched = v.dispatch(e, node.lookaheadVerse)
+  let
+    saved = e.ctx
+    deepestFailure = e.deepestFailure
+    matched = v.dispatch(e, node.lookaheadVerse)
   e.ctx = saved
+  e.deepestFailure = deepestFailure
   return if node.invert: not matched else: matched
 
 proc execCheckMatch[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
@@ -203,12 +232,16 @@ proc execCheckNoMatch[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,
       e.recordFailure("Not " & prettySet(s))
       return false
   else:
-    # Fallback to `not execCheckMatch`
     let
       saved = e.ctx
-      matched = v.dispatch(e, vIdx)
+      matched = v.execCheckMatch(e, vIdx, node)
     e.ctx = saved 
     return not matched
+
+proc execCommit[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
+  inc e.commitDepth
+  result = v.dispatch(e, node.commitBody)
+  dec e.commitDepth
 
 proc execErrorLabel[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
   e.labelStack.add(v.codex[node.labelStrIdx])
@@ -228,6 +261,7 @@ proc newExecutor*[C, G, A, L](c: Codex[C, G, A, L]): VerseExecutor[C, G, A, L] =
     visitVLookaheadCb: execLookahead,
     visitVCheckMatchCb: execCheckMatch,
     visitVCheckNoMatchCb: execCheckNoMatch,
+    visitVCommitCb: execCommit,
     visitVErrorLabelCb: execErrorLabel
   )
 

@@ -23,6 +23,7 @@ type
     vkErrorLabel                 # An error label
     vkLookahead                  # Executes verse but then rewinds cursor
     vkCheckMatch, vkCheckNoMatch # A terminal match
+    vkCommit                     # Commit to this branch, YOLO
 
   CheckKind* = enum
     ckAtom, ckSet, ckSeqAtom, ckAny
@@ -63,6 +64,9 @@ type
       of ckSeqAtom: atomPoolIdx*: AtomPoolIdx
       of ckSet: setPoolIdx*: SetPoolIdx
       of ckAny: discard
+    
+    of vkCommit:
+      commitBody*: VerseIdx
 
   RuleDef* = object
     name*: string
@@ -125,6 +129,8 @@ func `==`*(a, b: Verse): bool =
         a.setPoolIdx == b.setPoolIdx
       of ckAny:
         true
+  of vkCommit:
+    a.commitBody == b.commitBody
 
 func `$`*(a: VerseIdx): string = "v@" & $int(a)
 func `$`*(a: SpineIdx): string = "s@" & $int(a)
@@ -282,3 +288,9 @@ func checkMatchAny*(T: typedesc[Verse]): T = T(
 func checkNoMatchAny*(T: typedesc[Verse]): T = T(
   kind: vkCheckNoMatch, checkType: ckAny
 )
+
+func commit*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[Verse[G, A]],
+  c: var Codex[C, G, A, L],
+  body: VerseIdx
+): T = T(kind: vkCommit, commitBody: body)
