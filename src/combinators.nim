@@ -13,11 +13,11 @@ type
     id*: RuleIdx
 
 # Helpers
-proc `init`[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+func `init`[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   T: typedesc[Codex[C, G, A, L]]
 ): T = T()
 
-proc `init`[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+func `init`[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   T: typedesc[RuleBuilder[C, G, A, L]],
   root: VerseIdx,
   codex: Codex[C, G, A, L]
@@ -37,7 +37,7 @@ func add[C: Ctx, G: Ordinal, A: Atom, L: static bool](
 ): VerseIdx = b.codex.add(v)
 
 # For stitching together codexes (since each rule builder has its own codex)
-proc stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+func stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   dest: var Codex[C, G, A, L],
   src: Codex[C, G, A, L], 
   entry: VerseIdx
@@ -51,7 +51,7 @@ proc stitch[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   of vkSeq:
     var newChildren = newSeqOfCap[VerseIdx](origVerse.spineLen)
     for i in 0..<origVerse.spineLen:
-      let childIdx = src[SpineIdx(int(origVerse.spineStart) + i)]
+      let childIdx = src[succ(origVerse.spineStart, i)]
       newChildren.add(dest.stitch(src, childIdx))
     if newChildren.len > 0:
       let start = dest.add(newChildren[0])
@@ -200,7 +200,7 @@ func `and`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
 
   if aVerse.kind == vkSeq:
     discard result.codex.add(bRoot) 
-    result.codex.verses[a.root.int].spineLen.inc
+    inc result.codex.verses[a.root.int].spineLen
   else:
     let start = result.codex.add(a.root) 
     discard result.codex.add(bRoot)      

@@ -98,7 +98,7 @@ template trackAdvance[C, G, A, L](ctx: var ParserCtx[C, G, A, L], atom: A) =
 
 proc execSeq[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
   for i in 0..<node.spineLen:
-    let child = v.codex[SpineIdx(int(node.spineStart) + i)]
+    let child = v.codex[succ(node.spineStart, i)]
     if not v.dispatch(e, child): return false
   return true
 
@@ -127,8 +127,10 @@ proc execSiphon[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], 
   return false
 
 proc execAct[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
-  if not v.dispatch(e, node.actBody): return false
-  return v.codex[node.actIdx](e.ctx)
+  let saved = e.ctx
+  if v.dispatch(e, node.actBody): return v.codex[node.actIdx](e.ctx)
+  e.ctx = saved
+  return false
 
 proc execLookahead[C, G, A, L](v: VerseExecutor[C,G,A,L], e: var ExecEnv[C,G,A,L], vIdx: VerseIdx, node: Verse[G,A]): bool =
   let saved = e.ctx
