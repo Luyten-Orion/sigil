@@ -146,7 +146,10 @@ func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   c: Codex[C, G, A, L],
   idx: AtomPoolIdx
 ): seq[A] = c.atomPool[idx.int]
-func `[]`*(c: Codex, idx: SetPoolIdx): set[char] = c.setPool[idx.int]
+func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  c: Codex[C, G, A, L],
+  idx: SetPoolIdx
+): set[A] = c.setPool[idx.int]
 func `[]`*(c: Codex, idx: RuleIdx): RuleDef = c.rulePool[idx.int]
 func `[]`*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   c: Codex[C, G, A, L],
