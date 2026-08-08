@@ -1,11 +1,13 @@
 import std/[strutils, sets]
 import sigil
-import sigil/codex/ctypes
-import sigil/codex/visitor
+import sigil/combinators
+import sigil/codex/[ctypes, visitor]
 
 type
-  FailureRecord* = object
+  FailureRecord*[L: static bool] = object
     pos*: int
+    when L:
+      line*, column*: int
     stack*: seq[string]
     expected*: seq[string]
 
@@ -15,7 +17,7 @@ type
     labelStack*: seq[string]
     furthestFailureIdx*: int
     expectedLabels*: seq[string]
-    deepestFailure*: FailureRecord
+    deepestFailure*: FailureRecord[L]
     commitDepth*: int
 
   VerseExecutor*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = 
@@ -76,11 +78,14 @@ proc recordFailure[C, G, A, L](e: var ExecEnv[C,G,A,L], fallback: string) =
   let label = if e.labelStack.len > 0: e.labelStack[^1] else: fallback
   let pos = e.ctx.cursorPos
   if pos > e.deepestFailure.pos:
-    e.deepestFailure = FailureRecord(
+    e.deepestFailure = FailureRecord[L](
       pos: pos,
       stack: e.labelStack,
       expected: @[label]
     )
+    when L:
+      e.deepestFailure.line = e.ctx.line
+      e.deepestFailure.column = e.ctx.column
   elif pos == e.deepestFailure.pos:
     if label notin e.deepestFailure.expected:
       e.deepestFailure.expected.add(label)
@@ -264,5 +269,89 @@ proc newExecutor*[C, G, A, L](c: Codex[C, G, A, L]): VerseExecutor[C, G, A, L] =
     visitVCommitCb: execCommit,
     visitVErrorLabelCb: execErrorLabel
   )
+
+proc formatError*[C, G, A, L](
+    env: ExecEnv[C, G, A, L],
+    input: seq[A]
+): string =
+  ## Build a human‑readable error message from the failure record
+  ## recorded by the tree executor.
+  if env.deepestFailure.pos == -1:
+    return "No error"
+
+  let pos = env.deepestFailure.pos
+
+  var expected = env.deepestFailure.expected
+  expected = expected.deduplicate()
+  expected.sort()
+
+  let expectedStr =
+    if expected.len == 0:
+      "something"
+    elif expected.len == 1:
+      expected[0]
+    else:
+      expected.join("', '") & "'"
+
+  result = "Expected " & expectedStr
+
+  when L:
+    result.add(" at line " & $env.deepestFailure.line &
+               ", column " & $env.deepestFailure.column)
+  else:
+    result.add(" at position " & $pos)
+
+  let actual =
+    if pos < input.len:
+      prettyAtom(input[pos])
+    else:
+      "end of input"
+  result.add(", but got '" & actual & "'")
+
+  if pos < input.len:
+    let
+      start = max(0, pos - 20)
+      finish = min(input.len - 1, pos + 20)
+    var snippet = ""
+    for i in start..finish:
+      snippet.add(prettyAtom(input[i]))
+    if start > 0:
+      snippet = "..." & snippet
+    if finish < input.len - 1:
+      snippet = snippet & "..."
+    result.add("\n  " & snippet)
+
+    let caretPos = pos - start + 2
+    result.add("\n  " & repeat(' ', caretPos) & "^")
+
+  # Show the rule stack
+  if env.deepestFailure.stack.len > 0:
+    result.add("\nWhile parsing: " & env.deepestFailure.stack.join(" -> "))
+
+# Smol parsing helper
+type ParseResult*[C: Ctx, G: Ordinal, A: Atom, L: static bool] = object
+  ## Result of a parse attempt.
+  case success*: bool
+  of true:
+    ctx*: ParserCtx[C, G, A, L]
+  of false:
+    error*: string
+
+proc parse*[C, G, A, L](
+    rule: Rule[C, G, A, L],
+    input: seq[A]
+): ParseResult[C, G, A, L] =
+  ## Parse the input with the given rule and returns the result.
+  let
+    codex = rule.builder.finalise()
+    exe = newExecutor(codex)
+  var env = ExecEnv[C, G, A, L](
+    input: input,
+    ctx: ParserCtx[C, G, A, L]()
+  )
+  if exe.dispatch(env, codex[rule.id].entry):
+    ParseResult[C, G, A, L](success: true, ctx: env.ctx)
+  else:
+    ParseResult[C, G, A, L](success: false, error: formatError(env, input))
 
 export visitor
