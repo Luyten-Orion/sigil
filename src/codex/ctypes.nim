@@ -230,9 +230,13 @@ func act*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   actIdx: actIdx
 )
 
-func errorLabel*(T: typedesc[Verse], c: var Codex, body: VerseIdx, label: string): T = T(
-  kind: vkErrorLabel, labelledVerseIdx: body, labelStrIdx: c.add(label)
-)
+func errorLabel*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[Verse[G, A]],
+  c: var Codex[C, G, A, L],
+  body: VerseIdx,
+  label: string
+): T =
+  T(kind: vkErrorLabel, labelledVerseIdx: body, labelStrIdx: c.add(label))
 
 func lookahead*[G: Ordinal, A: Atom](
   T: typedesc[Verse[G, A]],
@@ -242,15 +246,12 @@ func lookahead*[G: Ordinal, A: Atom](
   kind: vkLookahead, lookaheadVerse: body, invert: invert
 )
 
+# Codex for `Atom` is a no-op, just there for a nice API
 func checkMatch*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   T: typedesc[Verse[G, A]],
-  c: var Codex[C, G, A, L],
+  _: var Codex[C, G, A, L],
   at: Atom
 ): T = T(kind: vkCheckMatch, checkType: ckAtom, valAtom: at)
-# Codex for `Atom` is a no-op, just there for a nice API
-func checkMatch*(T: typedesc[Verse], _: var Codex, at: Atom): T = T(
-  kind: vkCheckMatch, checkType: ckAtom, valAtom: at
-)
 func checkMatch*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   T: typedesc[Verse[G, A]],
   c: var Codex[C, G, A, L],
@@ -258,36 +259,34 @@ func checkMatch*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
 ): T = T(
   kind: vkCheckMatch, checkType: ckSeqAtom, atomPoolIdx: c.add(@s)
 )
-func checkMatch*(T: typedesc[Verse], c: var Codex, s: set[char]): T = T(
+func checkMatch*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
+  T: typedesc[Verse[G, A]],
+  c: var Codex[C, G, A, L],
+  s: set[A]
+): T = T(
   kind: vkCheckMatch, checkType: ckSet, setPoolIdx: c.add(s)
 )
 
+
+# Codex for `Atom` is a no-op, just there for a nice API
 func checkNoMatch*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   T: typedesc[Verse[G, A]],
+  _: var Codex[C, G, A, L],
   at: Atom
 ): T = T(kind: vkCheckNoMatch, checkType: ckAtom, valAtom: at)
-# Codex for `Atom` is a no-op, just there for a nice API
-func checkNoMatch*(T: typedesc[Verse], _: var Codex, at: Atom): T = T(
-  kind: vkCheckNoMatch, checkType: ckAtom, valAtom: at
-)
 func checkNoMatch*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   T: typedesc[Verse[G, A]],
   c: var Codex[C, G, A, L],
-  at: Atom
-): T = T(
-  kind: vkCheckNoMatch, checkType: ckAtom, valAtom: at
-)
-func checkNoMatch*(T: typedesc[Verse], c: var Codex, s: set[char]): T = T(
-  kind: vkCheckNoMatch, checkType: ckSet, setPoolIdx: c.add(s)
-)
+  s: set[A]
+): T = T(kind: vkCheckNoMatch, checkType: ckSet, setPoolIdx: c.add(s))
+func checkMatchAny*[G: Ordinal, A: Atom](
+  T: typedesc[Verse[G, A]]
+): T =
+  T(kind: vkCheckMatch, checkType: ckAny)
 
-func checkMatchAny*(T: typedesc[Verse]): T = T(
-  kind: vkCheckMatch, checkType: ckAny
-)
-
-func checkNoMatchAny*(T: typedesc[Verse]): T = T(
-  kind: vkCheckNoMatch, checkType: ckAny
-)
+func checkNoMatchAny*[G: Ordinal, A: Atom](
+  T: typedesc[Verse[G, A]]): T =
+  T(kind: vkCheckNoMatch, checkType: ckAny)
 
 func commit*[C: Ctx, G: Ordinal, A: Atom, L: static bool](
   T: typedesc[Verse[G, A]],
